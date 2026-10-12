@@ -625,7 +625,7 @@ impl MetaMap {
     }
 }
 
-fn parse_bool(s: &str) -> bool {
+pub(crate) fn parse_bool(s: &str) -> bool {
     let s = s.trim();
     s.eq_ignore_ascii_case("true") || s == "1"
 }

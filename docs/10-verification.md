@@ -29,6 +29,10 @@ How each load-bearing claim in these documents was established, which earlier cl
 | `profile-update-interval` in hours, 1 to 730 | `vl7.java:11` (`new pb3(1, 730, 1)`) | [App management](https://www.happ.su/main/dev-docs/app-management); on device | **VERIFIED** |
 | `routing` header carries a routing deeplink | Live provider (Happ User-Agents only) | `lw2`, `ng6`; on device | **VERIFIED** |
 | Default User-Agent and request headers | `wb8.S`, `e52.java:208` | Captured on device | **VERIFIED** |
+| The "send HWID" switch gates all four device headers; `subscription-always-hwid-enable` forces it on and locks it | `uj7.java:57`, `rl7`, `mr` case 8, `cd.java:200` | Default (on) captured on device | **INFERRED** |
+| `subscription-hwid-in-cookie-enable` replaces `X-HWID` with `Cookie: <hwid>` | `so1`, `SubscriptionItem.U()` | none | **INFERRED** |
+| One retry after a thrown call: without `Connection: close` after a reset, IPv4-only resolution after a timeout or other I/O error | `b52.q`, `s60.lookup` | Two requests 7 s apart against a hanging server, on device | **INFERRED** (retry count **VERIFIED**) |
+| A `subscription-request-timeout` outside 5..15 is ignored, not clamped | `MetaParams.java:644`, `pq.b` | none | **INFERRED** |
 | `crypt5` block half-swap and marker position | Third-party decoder, `liberror-code.so:0x183024` | 5 of 5 generator links decrypt | **VERIFIED** |
 | `crypt5` field sizes | Measured on the 5 links | `0x20`/`0x8`/`0x10` steps in the native ChaCha path | **VERIFIED** |
 | `crypt5` step 5 is `base64_decode(swap_adjacent(inner))` | 5 of 5 links decrypt only in this order | Length arithmetic of `seg_len` | **VERIFIED** |
@@ -159,6 +163,9 @@ Earlier drafts of this research made the claims below; each was checked and corr
 | Sending `0` for one of seven sticky keys clears it; other sticky keys cannot be cleared | Only a body directive clears them: a header `0` is ignored because `pc6.a` takes `ResetInfo` from the body. `sub-info-text` and `sub-info-button-text` are also cleared by `0` or an empty value, from any transport | On-device refreshes with header and body `0`; `MetaParams.j1`, `MetaParams.Companion.c` |
 | Every refresh drops keys the response omits | Only refreshes with `isFull` (refresh button, "update all"); the fetch after an import keeps them, and a response with no meta changes nothing | On device; `MainActivity.T`, `e53.b` |
 | The crate does not parse the URL fragment | `meta::parse_fragment`; `parse` merges the response over the fragment on import | `hq4.p`, `if7.b`; on device |
+| `subscription-hwid-in-cookie-enable` also puts the HWID in a cookie | It replaces the `X-HWID` header with `Cookie: <hwid>`, a bare value with no cookie name | `so1`, which `uj7.d` passes to the fetcher |
+| `subscription-always-hwid-enable` sends the identifiers on every request | It turns the "send HWID" switch on and disables it in the UI; the switch gates all four device headers on every fetch anyway | `mr` case 8, `cd.java:200`, `uj7.java:57` |
+| `manual-block-user-agent` blocks the fetch if a custom User-Agent is rejected | It clears the user's custom User-Agent and locks the field | `mr` case 9, `ul7` |
 
 ## Open items
 
@@ -176,3 +183,5 @@ Earlier drafts of this research made the claims below; each was checked and corr
 | Byte-exact export→import round trip per scheme | **UNKNOWN**; irrelevant for an importer |
 | URL private keys extracted by this research's own pipeline | Not done; the third-party set is pinned by commit and SHA-256 |
 | Body key rotation after 4.7.1 | **UNKNOWN**; re-run the extractor on new releases |
+| `X-Device-OS` and User-Agent of Happ for Windows, Linux, macOS and iOS | **UNKNOWN**; `request::ClientOs` uses inferred strings for them |
+| Effect of the HWID switches and the retry shapes on a device | **INFERRED** from the code; only the defaults and the retry count were observed |

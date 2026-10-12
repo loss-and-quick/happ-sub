@@ -40,7 +40,7 @@ Providers configure the client through 91 meta keys: the 90 in the vendor docume
 | Key | Format |
 |---|---|
 | `profile-update-interval` | Integer **hours**, 1 to 730. Values below 1 are treated as 1; minutes and fractions are invalid. **VERIFIED**: `vl7.java:11` declares the range as `new pb3(1, 730, 1)`, the vendor docs state hours, a live provider sends `1`, and Happ shows `12` as a 12-hour auto-update and locks the user's interval field (on-device mock, 2026-10-12). |
-| `subscription-request-timeout` | Integer seconds, 5 to 15. Happ's default is 7, and a value outside the range or not an integer also becomes 7. **INFERRED**: `uj7.java:64` (default), `MetaParams.Companion.a`; the 7 s default is consistent with the on-device fetch timing ([07](07-fetch-and-update.md#fetch-controls)). The crate's `subscription_request_timeout()` clamps instead. |
+| `subscription-request-timeout` | Integer seconds, 5 to 15. Happ's default is 7, and a value outside the range or not an integer also becomes 7. **INFERRED**: `uj7.java:64` (default), `MetaParams.Companion.a`; the 7 s default is consistent with the on-device fetch timing ([07](07-fetch-and-update.md#fetch-controls)). The crate's `subscription_request_timeout()` clamps instead; `request::build` follows Happ. |
 | `subscription-userinfo` | `upload=<bytes>; download=<bytes>; total=<bytes>; expire=<unix seconds>`. `total=0` means unmetered, `expire=0` means no expiry. Example: `upload=0; download=2153701362; total=107374182400; expire=1796256000`. **VERIFIED**: parsed into `dto/SubscriptionUserInfo.java`, **DOCUMENTED** in [App management](https://www.happ.su/main/dev-docs/app-management), present in the live fixture; Happ displays `(upload + download) / total` and the expiry date (on-device mock, 2026-10-12). |
 | `routing` | A `happ://routing/add/…`, `happ://routing/onadd/…` or `happ://routing/off` deeplink ([06](06-deeplinks-and-routing.md)). |
 | `sub-info-color` | `red`, `blue` or `green`. Stored as `RED` / `BLUE` / `GREEN`. Happ 4.7.1 stores `sub-info-text`, `sub-info-color` and `sub-info-button-*` but does not display them on the main screen (on-device mock, 2026-10-12). |
@@ -142,7 +142,7 @@ Transport: **H** = response header (`lw2.java:13`), **B** = body directive. Ever
 | `insecure` | bool | H, B | Disable TLS certificate checks on fetch | `TrustBoundary` |
 | `installid` | string | H, B | Installation identifier for per-device activation limits | `DeviceIdentity` |
 | `local-dns-enable` | bool | H, B | Enable local system DNS resolution | `TrustBoundary` |
-| `manual-block-user-agent` | bool | H, B | Block fetch if custom User-Agent rejected | `TrustBoundary` |
+| `manual-block-user-agent` | bool | H, B | Clear the user's custom User-Agent and lock the field | `TrustBoundary` |
 | `mux-enable` | bool | H, B | Enable TCP/UDP multiplexing (Mux.Cool) | `TunnelBehaviour` |
 | `mux-quic` | bool | H, B | Enable QUIC multiplexing transport | `TunnelBehaviour` |
 | `mux-tcp-connections` | int | H, B | Max concurrent Mux TCP connections | `TunnelBehaviour` |
@@ -183,15 +183,15 @@ Transport: **H** = response header (`lw2.java:13`), **B** = body directive. Ever
 | `subscriptions-collapse` | bool | H, B | Collapse subscription group in UI list | `Schedule` |
 | `subscriptions-expand-now` | bool | H, B | Expand subscription group in UI list | `Schedule` |
 | `subscriptions-sort-type` | enum | H, B | Sort order for server list in UI | `Schedule` |
-| `subscription-always-hwid-enable` | bool | H, B | Force HWID sending on every request | `DeviceIdentity` |
+| `subscription-always-hwid-enable` | bool | H, B | Force the four device headers on and lock the user's switch | `DeviceIdentity` |
 | `subscription-autoconnect` | bool | H, B | Connect automatically after a refresh | `TrustBoundary` |
 | `subscription-autoconnect-type` | enum | H, B | Target node selection for autoconnect | `TrustBoundary` |
 | `subscription-auto-update-open-enable` | bool | H, B | Trigger refresh when application opens | `Schedule` |
-| `subscription-hwid-in-cookie-enable` | bool | H, B | Transmit HWID inside HTTP Cookie header | `DeviceIdentity` |
+| `subscription-hwid-in-cookie-enable` | bool | H, B | Send the HWID as `Cookie: <hwid>` instead of `X-HWID` | `DeviceIdentity` |
 | `subscription-pin` | bool | H, B | Pin subscription to top of UI list | `Schedule` |
 | `subscription-ping-onopen-enabled` | bool | H, B | Probe server latency on app launch | `Schedule` |
 | `subscription-request-timeout` | int | H, B | HTTP fetch timeout in seconds (5..15) | `Schedule` |
-| `subscription-send-hwid-enabled` | bool | H, B | Transmit `X-HWID` HTTP header | `DeviceIdentity` |
+| `subscription-send-hwid-enabled` | bool | H, B | Send `X-HWID`, `X-Device-OS`, `X-Ver-OS` and `X-Device-model` | `DeviceIdentity` |
 | `subscription-sort-type` | enum | H, B | Server sorting configuration | `Schedule` |
 | `subscription-userinfo` | string | H, B | Traffic quota and expiry, see below | `Display` |
 | `sub-expire` | bool | H, B | Flag indicating subscription is expired | `Display` |
@@ -207,7 +207,7 @@ Transport: **H** = response header (`lw2.java:13`), **B** = body directive. Ever
 
 ## Confidence and open questions
 
-All keys except `ping-result` and `reset` are **DOCUMENTED**. `profile-title` with `base64:`, `profile-update-interval`, `support-url`, `profile-web-page-url`, `subscription-userinfo`, `announce` and `routing` are **VERIFIED** as headers on a live provider; the provider sent the same six keys to every client and added `routing` only for `User-Agent`s starting with `Happ` (live probe, 2026-10-12). Body directives, URL fragment directives, the precedence of the three transports, the full and partial refresh merge and the `0` clears are **VERIFIED** against Happ 4.7.1 with a mock server (on-device mock, 2026-10-12); no live provider sent body or fragment directives.
+All keys except `ping-result` and `reset` are **DOCUMENTED**. `profile-title` with `base64:`, `profile-update-interval`, `support-url`, `profile-web-page-url`, `subscription-userinfo`, `announce` and `routing` are **VERIFIED** as headers on a live provider; the provider sent the same six keys to every client and added `routing` only for `User-Agent`s starting with `Happ` (live probe, 2026-10-12). Body directives, URL fragment directives, the precedence of the three transports, the full and partial refresh merge and the `0` clears are **VERIFIED** against Happ 4.7.1 with a mock server (on-device mock, 2026-10-12); no live provider sent body or fragment directives. The meanings of `manual-block-user-agent` and the three `subscription-*-hwid-*` keys are **INFERRED** from the fetch code ([08](08-device-binding.md#hardware-identifier-hwid)).
 
 Open questions:
 

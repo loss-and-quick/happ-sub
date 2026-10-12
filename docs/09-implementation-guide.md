@@ -7,8 +7,10 @@ An end-to-end import pipeline for a Happ-compatible client, and how the work spl
 | Step | Who |
 |---|---|
 | Deeplink parsing, `crypt*` URL decryption | crate (`deeplink`; `url_crypt` with `builtin_keyring()` or a caller-supplied keyring) |
-| HTTP fetch, timeouts, TLS, cookies | caller |
-| Happ's `User-Agent` and SSAID (`X-HWID`) | crate (`device`, from a caller-supplied user key); whether to send them is the caller's policy |
+| Request headers in Happ's order, User-Agent, timeout, retry rules | crate (`request::build`), from the device facts, HWID, overrides and consent the caller supplies |
+| HTTP transport, cookie jar, TLS, DNS | caller, following the `RequestProfile` |
+| Device facts (OS, OS version, model, locale), the HWID and its default, per-subscription overrides | caller |
+| Happ's SSAID, the HWID Happ sends | crate (`device`, from a caller-supplied user key); whether to send it is the caller's policy |
 | Body decryption, directive extraction, payload detection, routing decoding, meta merge | crate (`parse`) |
 | Share-link parsing | caller |
 | Deciding which meta keys to apply | caller, using `RiskClass` |
@@ -29,11 +31,13 @@ IngestSubscription(input, stored) -> Result<Import, Error>
    store and fetch url without its fragment
 
 2. Fetch                                                                       // 07
-   GET url with timeout = stored.meta["subscription-request-timeout"] clamped to 5..15, else 7 s
-   User-Agent "Happ/<version>" if the Happ-specific response is wanted: providers pick the
-   body format and the routing header by it
-   device-identifier headers (X-HWID, X-Device-OS, X-Ver-OS, X-Device-model) per the
-   client's policy; Happ sends them by default, with X-HWID = its SSAID on the device
+   profile = request::build(identity, stored.meta, now, consent)
+       identity: device facts, HWID (or none), the user's overrides for this subscription
+       consent:  whether the user accepted change-user-agent / manual-block-user-agent
+   GET url with profile.headers in order; the client adds Host and Accept-Encoding
+   timeout = profile.timeout per attempt; one retry per profile.retry(cause) if the call fails
+   cookie jar per host, shared by all subscriptions
+   providers pick the body format and the routing header by the User-Agent
    non-2xx → Err(Network)
 
 3. Decrypt the body                                                            // 04
@@ -82,7 +86,7 @@ See [03](03-meta-protocol.md#risk-classes) for the classes and the per-key assig
 - Apply `Display` and `Schedule` keys automatically; clamp `Schedule` values to their ranges.
 - Show `TunnelBehaviour` changes, or apply them only after the user opts in.
 - Require per-subscription consent for every `TrustBoundary` key. Show the old and new value (`meta::changes`), and for `new-url`, `new-domain` and `fallback-url` the target host. Happ 4.7.1 itself ignores those three for an ordinary subscription ([07](07-fetch-and-update.md#alternative-fetch-targets)).
-- Ignore `DeviceIdentity` and `Ignored` keys by default.
+- Ignore `DeviceIdentity` and `Ignored` keys by default. The exception is the three `subscription-*-hwid-*` switches, which `request::build` applies: they only withhold, force or move the device headers Happ sends by default, and the user's overrides win over them. `change-user-agent` and `manual-block-user-agent` reach the request only through the consent predicate.
 
 ## Things not to implement
 

@@ -1,6 +1,6 @@
 # happ-sub
 
-A zero-I/O Rust library for importing Happ-compatible (`su.happ.proxyutility`) subscriptions. Given the subscription URL, response headers and body that the caller fetched, it decrypts the body if needed, extracts meta directives and routing profiles, detects the payload form, merges metadata, and classifies every provider directive by risk so the caller can decide what to apply. It also parses `happ://` deeplinks and decrypts `happ://crypt*` URLs, with embedded keys or a caller-supplied keyring. With the `device` feature it also computes the identity Happ reports on fetches: its SSAID (`X-HWID`) and `User-Agent`. It is written for [Kasumi Proxy](https://github.com/loss-and-quick/Kasumi-Proxy) and usable by any client.
+A zero-I/O Rust library for importing Happ-compatible (`su.happ.proxyutility`) subscriptions. Given the subscription URL, response headers and body that the caller fetched, it decrypts the body if needed, extracts meta directives and routing profiles, detects the payload form, merges metadata, and classifies every provider directive by risk so the caller can decide what to apply. It also parses `happ://` deeplinks and decrypts `happ://crypt*` URLs, with embedded keys or a caller-supplied keyring. It also builds the subscription request Happ would send: its headers in wire order, `User-Agent`, timeout and retry rules, from device facts and user overrides the caller supplies. With the `device` feature it computes the HWID Happ sends, its SSAID. It is written for [Kasumi Proxy](https://github.com/loss-and-quick/Kasumi-Proxy) and usable by any client.
 
 ## Features
 
@@ -10,11 +10,11 @@ A zero-I/O Rust library for importing Happ-compatible (`su.happ.proxyutility`) s
 | `url-crypt` | no | `happ://crypt/` … `happ://crypt5/` decryption with a caller-supplied keyring (`chacha20poly1305`, `rsa`) |
 | `builtin-url-keys` | no | Enables `url-crypt` and embeds the RSA keys as `url_crypt::builtin_keyring()` (about 125 KB) |
 | `test-vectors` | no | Enables `body-crypt` and exposes `body_crypt::encrypt_with_table`, for producing encrypted samples in tests |
-| `device` | no | Happ's device identity: `device::ssaid` (the SSAID Happ sends as `X-HWID`, from a caller-supplied user key and the embedded Happ signing certificate), `device::user_agent` and the Happ version constants (`hmac`, `sha2`) |
+| `device` | no | `device::ssaid`: the SSAID Happ sends as `X-HWID`, from a caller-supplied user key and the embedded Happ signing certificate (`hmac`, `sha2`) |
 
 ## Scope
 
-In scope: body form detection, the meta directive protocol, body decryption, URL decryption, routing profiles and deeplinks.
+In scope: body form detection, the meta directive protocol, body decryption, URL decryption, routing profiles, deeplinks and the request headers Happ sends.
 
 Not in scope:
 
@@ -88,6 +88,46 @@ fn refresh(
 }
 ```
 
+## Building the request
+
+`request::build` returns the request Happ would send: its headers in Happ's order and spelling, the per-attempt timeout, the retry rules and whether to keep a cookie jar. The caller supplies the device facts, the HWID, the user's per-subscription overrides, the current time, the subscription's merged metadata and the user's consent to `TrustBoundary` keys; the crate applies Happ's precedence ([docs/07](docs/07-fetch-and-update.md#request)).
+
+```rust
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use happ_sub::request::{self, ClientOs, DeviceInfo, Identity, RetryCause};
+use happ_sub::MetaMap;
+
+let identity = Identity {
+    // The SSAID (`device::ssaid`) or any identifier the client chooses; `None` sends no X-HWID.
+    hwid: Some("0123456789abcdef".into()),
+    device: DeviceInfo {
+        os: ClientOs::Android,
+        os_version: "16".into(),
+        model: "Pixel 9".into(),
+        locale: "en-US".into(),
+    },
+    // `user_agent_override`, `send_hwid_override`, `hwid_in_cookie_override`: the user's settings.
+    ..Identity::default()
+};
+let stored: Option<&MetaMap> = None; // the merged meta from the last fetch; none on import
+let accepted = ["change-user-agent"]; // TrustBoundary keys the user accepted
+let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+
+let profile = request::build(&identity, stored, now, |key| accepted.contains(&key));
+assert_eq!(profile.headers[0], ("Connection".into(), "close".into()));
+assert_eq!(profile.headers[1].0, "User-agent");
+assert!(profile.headers[1].1.starts_with(&format!("Happ/{}/Android/", happ_sub::HAPP_VERSION)));
+assert_eq!(profile.timeout.as_secs(), 7);
+
+// Send `profile.headers` in order and let the client add Host and Accept-Encoding. If the
+// call fails, retry once with the headers and resolver mode for the failure.
+let retry = profile.retry(RetryCause::TimeoutOrIo);
+assert!(retry.ipv4_only);
+```
+
+`HAPP_VERSION` and `HAPP_VERSION_CODE` name the Happ release the crate follows. They and the other release constants live in [`src/release.rs`](src/release.rs), generated by happ-key-extractor.
+
 ## Risk classes
 
 Every meta key maps to a `RiskClass` (`meta::classify_key`). The full per-key table is in [docs/03-meta-protocol.md](docs/03-meta-protocol.md#key-reference).
@@ -116,6 +156,15 @@ The crate follows Happ 4.7.1 as observed on a device, except where Happ loses da
 | Empty `200` body | Success with zero servers | `Err(Error::EmptyBody)` |
 | URL fragment segment without `=` (`#?a=1&b`) | Rejects the whole import | Fragment directives ignored, `Warning::InvalidFragment` |
 | `sub-info-text: 0` on an import without a fragment | Stored as the text `0` | Dropped, as on every later merge |
+
+`request::build` follows Happ's request with these differences ([docs/07](docs/07-fetch-and-update.md#device-identifiers)):
+
+| Input | Happ 4.7.1 | `request::build` |
+|---|---|---|
+| `subscription-always-hwid-enable`, `subscription-hwid-in-cookie-enable`, `manual-block-user-agent` | Lock the user's switch or User-Agent field | The user's override wins; the lock is reported in `RequestProfile::locks` |
+| `subscription-send-hwid-enabled`, `subscription-always-hwid-enable`, `change-user-agent` dropped by a later full refresh | Their effect stays in the subscription's settings | The effect ends with the key; persist it as a user override to keep it |
+| A header value with characters OkHttp rejects (non-ASCII, line breaks) | The fetch fails | The characters are dropped |
+| `insecure` | Applied only to an `EXTRA` subscription | Never applied |
 
 ## Key material
 

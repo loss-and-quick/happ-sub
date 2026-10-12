@@ -8,7 +8,8 @@
 //! * URL unhiding (`happ://crypt/` … `happ://crypt5/`) with embedded (`builtin-url-keys`) or
 //!   caller-supplied RSA keys
 //! * Routing profiles (`happ://routing/`) and deeplink action dispatch
-//! * Happ's device identity (`device`): the SSAID it sends as `X-HWID` and its `User-Agent`
+//! * The subscription request Happ sends: headers in wire order, timeout and retry (`request`)
+//! * Happ's device identity (`device`): the SSAID it sends as `X-HWID`
 //!
 //! # Scope Boundary
 //! This crate owns **only** the Happ envelope. It performs no I/O, does not parse proxy share
@@ -26,12 +27,15 @@ pub mod deeplink;
 pub mod device;
 pub mod keys;
 pub mod meta;
+pub mod release;
+pub mod request;
 pub mod routing;
 #[cfg(feature = "url-crypt")]
 pub mod url_crypt;
 
 pub use body::Payload;
 pub use meta::{Limits, MergeMode, MetaDelta, MetaMap, ProposedChange, RiskClass, UserInfo};
+pub use release::{HAPP_VERSION, HAPP_VERSION_CODE};
 pub use routing::{RoutingAction, RoutingProfile};
 
 #[cfg(doctest)]
