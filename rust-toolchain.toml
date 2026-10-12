@@ -1,0 +1,4 @@
+# Single source of truth for the pinned Rust toolchain.
+[toolchain]
+channel = "1.95.0"
+components = ["rustfmt", "clippy"]

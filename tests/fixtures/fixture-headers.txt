@@ -1,0 +1,15 @@
+HTTP/2 200 
+server: example-edge
+set-cookie: session=<REDACTED>; Domain=.example.org; Path=/; Expires=Mon, 12-Oct-2026 10:52:28 GMT
+set-cookie: session=<REDACTED>; Domain=.example.org; HttpOnly; Path=/; Expires=Tue, 12-Oct-2027 10:32:28 GMT
+content-security-policy: upgrade-insecure-requests;
+date: Mon, 12 Oct 2026 10:32:28 GMT
+content-type: text/plain; charset=utf-8
+content-length: 8605
+profile-title: base64:RXhhbXBsZSBWUE4g8J+XvQ==
+profile-update-interval: 1
+support-url: https://example.org/support
+profile-web-page-url: https://example.org/start
+subscription-userinfo: upload=0; download=0; total=0; expire=1796256000
+announce: base64:8J+ToiBFeGFtcGxlIGFubm91bmNlbWVudC4KRW5hYmxlIEJ5UGFzcyBtb2RlIGluIHRoZSBib3Qgb3Igd2ViIHBhbmVsIHRvIHJlYWNoIGJsb2NrZWQgc2l0ZXMu
+routing: happ://routing/onadd/eyJOYW1lIjoiRVhBTVBMRS1ST1VUSU5HIiwiRGlyZWN0U2l0ZXMiOltdLCJEaXJlY3RJcCI6W119

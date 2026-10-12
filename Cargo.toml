@@ -1,0 +1,41 @@
+[package]
+name = "happ-sub"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+license = "MIT OR Apache-2.0"
+description = "Happ-compatible subscription handling: body form detection, meta protocol, AES-128-GCM bodies, crypt1..5 URLs, routing and deeplinks"
+authors = ["Kasumi Proxy Authors"]
+repository = "https://github.com/loss-and-quick/happ-sub"
+readme = "README.md"
+keywords = ["happ", "xray", "v2ray", "subscription", "proxy"]
+categories = ["network-programming", "parser-implementations", "encoding"]
+include = ["/src", "/README.md", "/LICENSE-MIT", "/LICENSE-APACHE"]
+
+[dependencies]
+base64 = "0.22"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+aes-gcm = { version = "0.10", optional = true }
+
+chacha20poly1305 = { version = "0.10", optional = true }
+rsa = { version = "0.9", optional = true }
+
+[dev-dependencies]
+rand = "0.8"
+sha2 = "0.10"
+
+[features]
+default = ["body-crypt"]
+# AES-128-GCM subscription body decryption with the built-in key tables.
+body-crypt = ["dep:aes-gcm"]
+# happ://crypt..crypt5 URL decryption with a caller-supplied keyring.
+url-crypt = ["dep:chacha20poly1305", "dep:rsa"]
+# Embeds the vendor RSA keys as `url_crypt::builtin_keyring` (about 125 KB of key data).
+builtin-url-keys = ["url-crypt"]
+# Exposes `body_crypt::encrypt_with_table` for building test fixtures.
+test-vectors = ["body-crypt"]
+
+[package.metadata.docs.rs]
+all-features = true
