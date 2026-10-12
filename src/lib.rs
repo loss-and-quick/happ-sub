@@ -28,7 +28,7 @@ pub mod routing;
 pub mod url_crypt;
 
 pub use body::Payload;
-pub use meta::{Limits, MergeMode, MetaMap, ProposedChange, RiskClass, UserInfo};
+pub use meta::{Limits, MergeMode, MetaDelta, MetaMap, ProposedChange, RiskClass, UserInfo};
 pub use routing::{RoutingAction, RoutingProfile};
 
 #[cfg(doctest)]

@@ -20,7 +20,7 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 
 use crate::Error;
 
-/// Risk classification tier for metadata directives.
+/// Risk tier of a metadata key; exhaustive on purpose, so a new tier is a breaking change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RiskClass {
@@ -201,6 +201,19 @@ pub struct ProposedChange {
     /// Normalized parameter value with `base64:` prefix decoded.
     pub value: String,
     /// Security classification for policy gating.
+    pub risk_class: RiskClass,
+}
+
+/// One key's change between stored and proposed metadata, from [`changes`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MetaDelta {
+    /// Normalized metadata key.
+    pub key: String,
+    /// Stored value; `None` when the key is new.
+    pub old: Option<String>,
+    /// Proposed value; `None` when the key is removed.
+    pub new: Option<String>,
+    /// Risk tier of the key.
     pub risk_class: RiskClass,
 }
 
@@ -770,6 +783,24 @@ pub fn refresh_merge(old: &MetaMap, incoming: &MetaMap, mode: MergeMode) -> Meta
     merged
 }
 
+/// Per-key difference between stored and proposed metadata, sorted by key; unchanged keys omitted.
+pub fn changes(old: Option<&MetaMap>, new: &MetaMap) -> Vec<MetaDelta> {
+    let empty = BTreeMap::new();
+    let old = old.map_or(&empty, |m| &m.entries);
+    let keys: std::collections::BTreeSet<&String> = old.keys().chain(new.entries.keys()).collect();
+    keys.into_iter()
+        .filter_map(|k| {
+            let (o, n) = (old.get(k), new.entries.get(k));
+            (o != n).then(|| MetaDelta {
+                key: k.clone(),
+                old: o.cloned(),
+                new: n.cloned(),
+                risk_class: classify_key(k),
+            })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1150,6 +1181,63 @@ mod tests {
         let mut m = MetaMap::new();
         m.insert("announce", "Hi\u{2028}there\u{200B}\u{1B}");
         assert_eq!(m.announce(), Some("Hi\nthere"));
+    }
+
+    #[test]
+    fn changes_reports_added_removed_and_changed_keys() {
+        let mut old = MetaMap::new();
+        old.insert("profile-title", "Old");
+        old.insert("support-url", "https://t.me/support");
+        old.insert("fallback-url", "https://a.example/sub");
+        let mut new = MetaMap::new();
+        new.insert("profile-title", "New");
+        new.insert("support-url", "https://t.me/support");
+        new.insert("routing", "happ://routing/add/e30=");
+
+        let delta = |key: &str, old: Option<&str>, new: Option<&str>, risk_class| MetaDelta {
+            key: key.into(),
+            old: old.map(Into::into),
+            new: new.map(Into::into),
+            risk_class,
+        };
+        assert_eq!(
+            changes(Some(&old), &new),
+            vec![
+                delta(
+                    "fallback-url",
+                    Some("https://a.example/sub"),
+                    None,
+                    RiskClass::TrustBoundary
+                ),
+                delta(
+                    "profile-title",
+                    Some("Old"),
+                    Some("New"),
+                    RiskClass::Display
+                ),
+                delta(
+                    "routing",
+                    None,
+                    Some("happ://routing/add/e30="),
+                    RiskClass::TrustBoundary
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn changes_without_stored_meta_adds_every_key() {
+        let mut new = MetaMap::new();
+        new.insert("Profile-Title", "T");
+        new.insert("x-unknown", "1");
+        let d = changes(None, &new);
+        assert_eq!(d.len(), 2);
+        assert!(d.iter().all(|c| c.old.is_none()));
+        assert_eq!(d[0].key, "profile-title");
+        assert_eq!(d[0].risk_class, RiskClass::Display);
+        assert_eq!(d[1].risk_class, RiskClass::Ignored);
+        assert!(changes(Some(&new), &new).is_empty());
+        assert!(changes(None, &MetaMap::new()).is_empty());
     }
 
     #[test]

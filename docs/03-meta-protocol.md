@@ -94,7 +94,7 @@ Dropping a key from the metadata does not undo every effect: after `profile-upda
 
 ## Risk classes
 
-The crate assigns every key a `RiskClass` (`meta::classify_key`). The class is advice for the caller's policy; the crate applies nothing itself.
+The crate assigns every key a `RiskClass` (`meta::classify_key`). The class is advice for the caller's policy; the crate applies nothing itself. `RiskClass` is exhaustive (no `#[non_exhaustive]`): adding a tier is a breaking change, so a caller's exhaustive `match` fails to compile until it decides how to treat the new tier. `meta::changes` diffs stored against proposed metadata key by key (`MetaDelta` with the old value, the new value and the class), for a "previous → proposed" review.
 
 | `RiskClass` | Meaning | Suggested handling |
 |---|---|---|

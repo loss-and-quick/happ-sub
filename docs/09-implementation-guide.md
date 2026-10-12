@@ -79,7 +79,7 @@ See [03](03-meta-protocol.md#risk-classes) for the classes and the per-key assig
 
 - Apply `Display` and `Schedule` keys automatically; clamp `Schedule` values to their ranges.
 - Show `TunnelBehaviour` changes, or apply them only after the user opts in.
-- Require per-subscription consent for every `TrustBoundary` key. Show the old and new value, and for `new-url`, `new-domain` and `fallback-url` the target host. Happ 4.7.1 itself ignores those three for an ordinary subscription ([07](07-fetch-and-update.md#alternative-fetch-targets)).
+- Require per-subscription consent for every `TrustBoundary` key. Show the old and new value (`meta::changes`), and for `new-url`, `new-domain` and `fallback-url` the target host. Happ 4.7.1 itself ignores those three for an ordinary subscription ([07](07-fetch-and-update.md#alternative-fetch-targets)).
 - Ignore `DeviceIdentity` and `Ignored` keys by default.
 
 ## Things not to implement
