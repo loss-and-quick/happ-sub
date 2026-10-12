@@ -292,20 +292,33 @@ impl UserInfo {
     }
 }
 
-/// Normalizes text from untrusted subscription providers.
-///
-/// Strips unicode bidirectional override codepoints (which can visually mask URLs)
-/// and carriage returns.
+/// Strips bidi, control and invisible characters from provider text; keeps `\n`, `\t` and ZWJ.
 pub fn normalize_untrusted_text(input: &str) -> String {
+    // Bidi controls can reorder a URL on screen and invisible ones can make two values look
+    // equal. ZWJ (U+200D) stays because emoji sequences need it.
     input
         .chars()
-        .filter(|c| {
-            !matches!(
-                c,
-                '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\r'
-            )
+        .filter_map(|c| match c {
+            '\u{2028}' | '\u{2029}' => Some('\n'),
+            '\n' | '\t' => Some(c),
+            '\u{0}'..='\u{1F}'
+            | '\u{7F}'..='\u{9F}'
+            | '\u{061C}'
+            | '\u{200B}'
+            | '\u{200E}'
+            | '\u{200F}'
+            | '\u{202A}'..='\u{202E}'
+            | '\u{2060}'
+            | '\u{2066}'..='\u{2069}'
+            | '\u{FEFF}' => None,
+            _ => Some(c),
         })
         .collect()
+}
+
+/// Collapses each run of whitespace, line breaks included, to one space and trims the ends.
+pub fn single_line(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// Happ's stored length of `profile-title`, in UTF-16 code units (Kotlin `take(25)`).
@@ -1096,6 +1109,57 @@ mod tests {
     fn text_normalization_strips_bidi() {
         let malicious = "Example \u{202E}txt.exe\u{202C} VPN";
         assert_eq!(normalize_untrusted_text(malicious), "Example txt.exe VPN");
+        assert_eq!(
+            normalize_untrusted_text("a\u{061C}b\u{200E}c\u{200F}d\u{2066}e\u{2069}f"),
+            "abcdef"
+        );
+    }
+
+    #[test]
+    fn text_normalization_strips_controls_and_invisibles() {
+        assert_eq!(
+            normalize_untrusted_text("a\u{0}b\u{7}c\u{1B}[31md\r\u{7F}e"),
+            "abc[31mde"
+        );
+        assert_eq!(normalize_untrusted_text("a\u{80}b\u{85}c\u{9F}d"), "abcd");
+        assert_eq!(
+            normalize_untrusted_text("\u{FEFF}pay\u{200B}pal\u{2060}.com"),
+            "paypal.com"
+        );
+        assert_eq!(
+            normalize_untrusted_text("line 1\r\nline 2\tx"),
+            "line 1\nline 2\tx"
+        );
+    }
+
+    #[test]
+    fn text_normalization_maps_unicode_separators_to_newline() {
+        assert_eq!(normalize_untrusted_text("a\u{2028}b\u{2029}c"), "a\nb\nc");
+    }
+
+    #[test]
+    fn text_normalization_keeps_emoji_zwj_sequences() {
+        let family = "👨\u{200D}👩\u{200D}👧";
+        assert_eq!(normalize_untrusted_text(family), family);
+        let flag = "🏳\u{FE0F}\u{200D}🌈";
+        assert_eq!(normalize_untrusted_text(flag), flag);
+    }
+
+    #[test]
+    fn meta_values_are_normalized_on_insert() {
+        let mut m = MetaMap::new();
+        m.insert("announce", "Hi\u{2028}there\u{200B}\u{1B}");
+        assert_eq!(m.announce(), Some("Hi\nthere"));
+    }
+
+    #[test]
+    fn single_line_collapses_whitespace() {
+        assert_eq!(
+            single_line("  a \n\n b\t\tc\u{2028}d\u{A0}e  "),
+            "a b c d e"
+        );
+        assert_eq!(single_line(" \n\t "), "");
+        assert_eq!(single_line("one"), "one");
     }
 
     #[test]
