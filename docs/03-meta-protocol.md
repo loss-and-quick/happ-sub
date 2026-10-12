@@ -8,9 +8,25 @@ Providers configure the client through 91 meta keys: the 90 in the vendor docume
 
 1. **Response headers.** Header names are matched case-insensitively. Every key except `hwidlink` and `reset` can be sent as a header (**VERIFIED**: `lw2.java:13` reads exactly 89 keys from the response headers; seven of them arrive as headers from a live provider). A response also carries ordinary HTTP headers (`content-type`, `date`, …); they are not meta keys and a client should ignore them. The crate keeps only headers named in `meta::KNOWN_KEYS`, except `hwidlink` and `reset`, and drops the rest.
 2. **Body lines.** `#<key>: <value>` or `#<key>:<value>` on its own line, anywhere in the body (see [02](02-subscription-body.md#detection-cascade); `MetaParams.Companion.a(List, false)`; **VERIFIED**, on-device mock, 2026-10-12; **DOCUMENTED** in [App management](https://www.happ.su/main/dev-docs/app-management)). Directive lines are removed before the payload is parsed. Body directives are kept whatever the key; an unknown key is classified `Ignored`.
-3. **URL fragment.** `https://…/sub#?key=value&key=value` is parsed with the same routine (`if7.b`, `MetaParams.Companion.a(List, true)`) and merged over the stored metadata when the subscription is imported (`qk7.java:119`) (**INFERRED**). `reset` is read only here. The crate does not parse URL fragments.
+3. **URL fragment.** `https://…/sub#<name>?key=value&key=value`, read once when the subscription is imported (`hq4.p`, `if7.b`, `MetaParams.Companion.a(List, true)`). `reset` is read only here. The crate parses it with `meta::parse_fragment`; see [URL fragment](#url-fragment) for the grammar.
 
 `hwidlink` is not a header either; it is a query parameter of the subscription URL, checked locally against the device identifier ([08](08-device-binding.md#local-check-hwidlink)).
+
+### URL fragment
+
+**VERIFIED** on Happ 4.7.1 against a mock server (on-device mock, 2026-10-12), with the code paths named:
+
+- **Where.** `hq4.p` takes the text after the last `#` of the imported URL and stores the URL without it (`if7.c`, `SubscriptionItem.url`); the full URL is kept as `originUrl`. The fragment is never sent: the request line was `GET /f/<name>` for every fragment variant. `meta::fetch_url` strips the fragment the same way for a normal URL.
+- **Grammar.** Directives start after the first `?` of the fragment; the part before it is the subscription name, overridden by `profile-title`. `if7.b` splits on `&`, then each segment on `=`, and takes segments `[0]` and `[1]`:
+  - a value ends at its next `=`: `profile-web-page-url=https://w.example/p?a=b` stored `https://w.example/p?a`, and Base64 padding is cut off (`base64:…==` still decoded, since the decoder accepts unpadded input);
+  - nothing is percent-decoded: `profile-title=Pct%20Title` stored `Pct%20Title`, and `support-url=https%3A%2F%2F…` was rejected as an invalid URL; `+` stays `+`. Before that, Happ's deeplink handler rewrites `%7C`, `%2F`, `%5C` and `a_n_d` to `|`, `/`, `\` and `&` in the whole `happ://add/` link (`uk8.d`, called from `DeeplinkInterceptorActivity` and `bi`), so that value arrived as `https%3A//…`; the crate's `deeplink` module does not do this rewrite;
+  - a segment without `=` (`…&bogus`, or the empty segment after a trailing `&`) throws `ArrayIndexOutOfBoundsException`, and the whole import fails with "Unknown content type": no subscription is created and nothing is fetched. The crate ignores the fragment's directives instead and reports `Warning::InvalidFragment`;
+  - keys are trimmed and case-insensitive, values trimmed (`Profile-Title=…` and ` announce =A2 ` were applied); a repeated key keeps its last value; unknown keys and `hwidlink` are ignored;
+  - a URL with two `#` (`…#name#?profile-title=T`) kept `#name` in the stored URL and applied no directives. The crate treats a fragment containing `#` as carrying no directives.
+- **Values.** The same per-key handling as headers and body lines (`MetaParams.Companion.a`): `base64:` is decoded where Happ decodes it, `subscription-userinfo` included. `reset` is accepted only from the fragment (`a(List, true)`).
+- **Precedence.** The fragment's directives become the subscription's metadata before the first fetch, and the response is merged over them with `isFull = false` ([below](#precedence-and-refresh-merge)): a key in the response wins (body over header over fragment), and every fragment key the response omits is kept. Later refreshes use the stored URL, which has no fragment, so the fragment is never read again.
+- **Re-adding the same URL.** Running `happ://add/<url>` again for a subscription that already exists keeps its ID but replaces its metadata with the new fragment's (none, for a URL without one) and fetches as on import; it is a re-import, not a refresh.
+- **Editing the URL.** `qk7.e` (the subscription edit screen) merges the edited URL's fragment over the stored metadata with `MetaParams.Companion.c(fragment, stored, true)` (**INFERRED**, not exercised).
 
 ## Value encoding
 
@@ -37,23 +53,44 @@ Within one response, a body directive overrides a header with the same key, and 
 response_meta = headers, then body directives overwrite on key conflict
 ```
 
-On refresh, Happ builds the stored metadata anew from the response (`MetaParams.Companion.c(new, old, isFull)`, which calls `d(new, isFull, old, getter, dropIfAbsent)` per key). A key in the new response replaces the stored value. A key absent from the new response is **dropped**, except for the sticky keys below, which keep their stored value (**VERIFIED**, on-device mock, 2026-10-12: a refresh that omitted `announce`, `support-url`, `profile-web-page-url`, `subscription-userinfo`, `profile-update-interval`, `fragmentation-enable`, `fragmentation-packets`, `ping-type` and `hide-settings` removed them all, while `sub-info-text`, `sub-info-color`, `fallback-url`, `sub-expire` and `sub-expire-button-link` survived):
+Happ then merges the response over the stored metadata with `MetaParams.Companion.c(new, old, isFull)` (`e53.b`), which calls `d(new, isFull, old, getter, dropIfAbsent)` per key, or `e(…)` for the seven clearable keys below. A key in the response replaces the stored value. What happens to a stored key the response omits depends on `isFull`, which the caller of the update passes down:
+
+| `isFull` | Callers | Absent key | `MergeMode` |
+|---|---|---|---|
+| `true` | The refresh button of one subscription (`bi`, log "UPDATED Sub (5)" / "(6)"), "update all" (`MainActivity.l0`, "(3)") | Dropped, except the sticky keys | `Full` |
+| `false` | The fetch right after an import (`MainActivity.T`, "(4)"), the WorkManager update job (`SubscriptionUpdater$UpdateTask`), the batch update in `g92.n` / `g92.o`, a `MainViewModel` update ("(1)", `p71`), and the `fallback-url` fetch (`g92.i`) | Kept | `Partial` |
+
+The full refresh is **VERIFIED** (on-device mock, 2026-10-12: a refresh that omitted `announce`, `support-url`, `profile-web-page-url`, `subscription-userinfo`, `profile-update-interval`, `fragmentation-enable`, `fragmentation-packets`, `ping-type` and `hide-settings` removed them all, while `sub-info-text`, `sub-info-color`, `fallback-url`, `sub-expire` and `sub-expire-button-link` survived). The partial merge on import is **VERIFIED** (a fragment's `profile-title`, `support-url` and `subscription-userinfo` survived a first response that carried only `announce`); the other `false` callers are **INFERRED** from the code.
 
 ```
-stored_meta' = response_meta
-               + { k: stored_meta[k] for k in STICKY if k not in response_meta }
+if response_meta has no known key:  stored_meta' = stored_meta            // e53: no merge at all
+else:
+  stored_meta' = response_meta
+                 + { k: stored_meta[k] for k not in response_meta
+                     if isFull is false or k in STICKY }
+                 - { k in CLEARABLE whose body value is 0 }
+                 - { sub-info-text, sub-info-button-text if 0 or empty }
 ```
+
+A response without any meta key leaves the stored metadata untouched even on a full refresh: `e53.b` skips the merge when the parsed `MetaParams` equals an empty one (**VERIFIED**, on-device mock: a refresh-button refresh with no meta kept `announce`, `support-url` and `profile-web-page-url`).
 
 | Sticky key | Can the provider clear it? |
 |---|---|
-| `installid`, `sub-info-color`, `sub-info-text`, `sub-info-button-text`, `sub-info-button-link`, `sub-expire`, `sub-expire-button-link` | No; only replaced |
-| `fragment`, `resolve-address`, `host`, `insecure`, `providerid`, `notification-subs-expire`, `fallback-url` | Yes: sending the key with the value `0` sets its flag in `ResetInfo` and the merge (`MetaParams.Companion.e`) then drops it (**INFERRED**: `MetaParams.Companion.a`; not observed) |
+| `installid`, `sub-info-color`, `sub-info-button-link`, `sub-expire`, `sub-expire-button-link` | No; only replaced (`0` is stored as a value) |
+| `sub-info-text`, `sub-info-button-text` | Yes: `c()` drops the merged value when it is `0` or empty, whichever transport sent it (**VERIFIED** for `sub-info-text`, on-device mock: `0` as a header and as a body line both cleared it) |
+| `fragment`, `resolve-address`, `host`, `insecure`, `providerid`, `notification-subs-expire`, `fallback-url` | Yes, with a **body** directive whose value is exactly `0` (after trimming); for `providerid`, any value that is not 8 ASCII letters or digits (`ProviderId.REGEX`). See below. |
 
-`meta::refresh_merge` implements this with `meta::REFRESH_STICKY_KEYS`. It does not implement the `0` reset: the crate keeps `0` as an ordinary value, which a caller reads as "disabled" for the boolean keys.
+The clear for the last seven keys works through `ResetInfo`. `MetaParams.Companion.a` stores no value for them on `0` and sets the key's `ResetInfo` flag instead, in every transport. `pc6.a` then builds the response's `ResetInfo` from the body's `MetaParams` alone (`metaParams2.j1(metaParams)`, which takes the body's non-null `ResetInfo`), so a header's flag is lost. In the merge, `e()` returns nothing when the response's flag is set, whatever `isFull` is, and otherwise behaves as a sticky key. The merged map gets a fresh `ResetInfo`, so a clear does not persist. Result (**VERIFIED**, on-device mock, 2026-10-12, refresh button):
 
-The drop only happens when `isFull` is set; with it clear, `d()` keeps every absent key. Every refresh observed on the device dropped keys; which code paths clear the flag was not traced. Dropping a key from the metadata does not undo every effect: after `profile-update-interval` was dropped, the interval saved in the subscription's properties and the scheduled WorkManager job stayed ([07](07-fetch-and-update.md#scheduling)).
+- `#fallback-url: 0` in the body removed the stored `fallback-url`;
+- `fallback-url: 0` as a header was ignored and the stored value stayed;
+- a fragment `0` is dropped on import, where it has nothing to clear; only the edit-URL path (`qk7.e`) would use the fragment's flags (**INFERRED**).
 
-`reset` is a separate boolean read only from the URL fragment ([Transports](#transports)) and consumed by the provider extra-check path (`eq0`, `id7`; [08](08-device-binding.md)). What it resets is **UNKNOWN**; the crate classifies it `Ignored`.
+`meta::refresh_merge(old, incoming, mode)` implements all of this with `meta::REFRESH_STICKY_KEYS` and `meta::RESET_CLEARABLE_KEYS`. `meta::parse_headers` and `meta::parse_fragment` drop a clear value, so in `incoming` it can only come from a body directive. `Parsed::meta` never contains such a `0`. `parse` uses `StoredState::merge` as the mode and, on import, merges the response over the fragment's directives in `MergeMode::Partial`. One small difference: on an import without a fragment Happ stores the response as is, so `sub-info-text: 0` is kept as the text `0`; the crate drops it.
+
+Dropping a key from the metadata does not undo every effect: after `profile-update-interval` was dropped, the interval saved in the subscription's properties and the scheduled WorkManager job stayed ([07](07-fetch-and-update.md#scheduling)).
+
+`reset` is a separate boolean, read only from the URL fragment ([URL fragment](#url-fragment)) and unrelated to `ResetInfo`. It is merged like a non-sticky key, so a full refresh drops it. It is consumed when the extra-check results are applied (`id7`, logged by `eq0` as "Has reset before extra"): if `reset` is true and the subscription's `resetHandled` is false, Happ broadcasts action 131 with the subscription's `originUrl` with `reset=1` / `reset=true` removed, which `MainViewModel` hands to `bi4` (**INFERRED**: a re-import from the cleaned original URL). On device, a fragment `reset=1` was stored as `reset: true` with `resetHandled: false`, and nothing else happened for an ordinary subscription (the extra-check path did not run). The crate classifies `reset` as `Ignored`.
 
 ## Risk classes
 
@@ -72,7 +109,7 @@ The crate assigns every key a `RiskClass` (`meta::classify_key`). The class is a
 
 ## Key reference
 
-Transport: **H** = response header (`lw2.java:13`), **B** = body directive. Every key can also travel in the URL fragment ([Transports](#transports)). The table lists all 91 keys; `base64:` is a value prefix, not a key. Keys and transports are **VERIFIED** against `MetaParams` and `lw2`; meanings are **DOCUMENTED** in [App management](https://www.happ.su/main/dev-docs/app-management) except where the confidence section says otherwise. The `RiskClass` column is the crate's classification, not Happ's.
+Transport: **H** = response header (`lw2.java:13`), **B** = body directive. Every key except `hwidlink` can also travel in the URL fragment ([URL fragment](#url-fragment)). The table lists all 91 keys; `base64:` is a value prefix, not a key. Keys and transports are **VERIFIED** against `MetaParams` and `lw2`; meanings are **DOCUMENTED** in [App management](https://www.happ.su/main/dev-docs/app-management) except where the confidence section says otherwise. The `RiskClass` column is the crate's classification, not Happ's.
 
 | Key | Type | Transport | Meaning | `RiskClass` |
 |---|---|---|---|---|
@@ -132,7 +169,7 @@ Transport: **H** = response header (`lw2.java:13`), **B** = body directive. Ever
 | `providerid` | string | H, B | 8-character provider identifier | `DeviceIdentity` |
 | `proxy-ping-mode` | enum | H, B | Latency measurement strategy | `TunnelBehaviour` |
 | `proxy-ping-timeout` | int | H, B | Ping probe timeout (seconds) | `TunnelBehaviour` |
-| `reset` | bool | URL fragment | Read by the provider extra-check path; effect unknown ([above](#precedence-and-refresh-merge)) | `Ignored` |
+| `reset` | bool | URL fragment | Read when extra-check results are applied; triggers a re-import from the original URL ([above](#precedence-and-refresh-merge)) | `Ignored` |
 | `resolve-address` | string | H, B | Custom DNS server for endpoint resolution | `TrustBoundary` |
 | `server-address-resolve-dns-domain` | string | H, B | Domain for DNS-over-HTTPS endpoint lookup | `TrustBoundary` |
 | `server-address-resolve-dns-ip` | string | H, B | IP address of DoH endpoint | `TrustBoundary` |
@@ -170,12 +207,12 @@ Transport: **H** = response header (`lw2.java:13`), **B** = body directive. Ever
 
 ## Confidence and open questions
 
-All keys except `ping-result` and `reset` are **DOCUMENTED**. `profile-title` with `base64:`, `profile-update-interval`, `support-url`, `profile-web-page-url`, `subscription-userinfo`, `announce` and `routing` are **VERIFIED** as headers on a live provider; the provider sent the same six keys to every client and added `routing` only for `User-Agent`s starting with `Happ` (live probe, 2026-10-12). Body directives, body-over-header precedence and the refresh merge are **VERIFIED** against Happ 4.7.1 with a mock server (on-device mock, 2026-10-12); no live provider sent body directives.
+All keys except `ping-result` and `reset` are **DOCUMENTED**. `profile-title` with `base64:`, `profile-update-interval`, `support-url`, `profile-web-page-url`, `subscription-userinfo`, `announce` and `routing` are **VERIFIED** as headers on a live provider; the provider sent the same six keys to every client and added `routing` only for `User-Agent`s starting with `Happ` (live probe, 2026-10-12). Body directives, URL fragment directives, the precedence of the three transports, the full and partial refresh merge and the `0` clears are **VERIFIED** against Happ 4.7.1 with a mock server (on-device mock, 2026-10-12); no live provider sent body or fragment directives.
 
 Open questions:
 
-- `ResetInfo`: the value `0` clears seven sticky keys according to the code; this was not observed.
-- What `reset` does in the extra-check path is **UNKNOWN**.
-- Which update paths run the refresh merge without dropping absent keys is **UNKNOWN**.
+- The `reset` re-import (broadcast 131) was not observed: it runs only on the extra-check path, which an ordinary subscription never takes.
+- The partial merge of the WorkManager job, the `g92` batch update and the `p71` update is **INFERRED** from the code; only the import fetch was observed.
+- The edit-URL path (`qk7.e`), which merges a fragment with `isFull = true`, was not exercised.
 - The meaning of `ping-result` is **UNKNOWN**: it is in `lw2`, but not documented and not observed.
 - Exact value grammars of the `fragmentation-*`, `noises-*` and `per-app-proxy-*` keys are **DOCUMENTED** only and were not checked against live samples.

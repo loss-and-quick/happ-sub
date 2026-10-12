@@ -150,6 +150,7 @@ fn meta_dual_transport_and_refresh_merge() {
         stored: Some(StoredState {
             encrypted: false,
             meta: Some(&old_meta),
+            ..Default::default()
         }),
         ..input("https://example.com/sub", &headers, body)
     })
@@ -208,6 +209,7 @@ mod body_encryption {
         Some(StoredState {
             encrypted: true,
             meta: None,
+            ..Default::default()
         })
     }
 
@@ -436,6 +438,7 @@ mod live_2026_10_12 {
             stored: Some(StoredState {
                 encrypted: false,
                 meta: Some(&first.meta),
+                ..Default::default()
             }),
             ..input(URL, &headers, &body)
         })
@@ -482,5 +485,169 @@ mod crypt5_vendor_samples {
             let got = decrypt_url(link, keyring).unwrap_or_else(|e| panic!("{id}: {e}"));
             assert_eq!(got, expected, "{id}");
         }
+    }
+}
+
+/// Happ 4.7.1 against a mock server on a device, 2026-10-12: URL fragment directives, sticky
+/// clears and the two merge modes. Each test replays one observed import or refresh.
+mod on_device_fragment_2026_10_12 {
+    use super::*;
+    use happ_sub::{MergeMode, MetaMap, Warning};
+
+    const LINK: &[u8] = b"vless://00000000-0000-0000-0000-000000000201@203.0.113.1:443?security=none&type=tcp#n201\n";
+
+    fn hdr(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    fn import(url: &str, headers: &[(String, String)], body: &[u8]) -> Parsed {
+        parse(&input(url, headers, body)).unwrap()
+    }
+
+    fn refresh(
+        stored: &MetaMap,
+        merge: MergeMode,
+        headers: &[(String, String)],
+        body: &[u8],
+    ) -> MetaMap {
+        parse(&Input {
+            stored: Some(StoredState {
+                encrypted: false,
+                meta: Some(stored),
+                merge,
+            }),
+            ..input("http://127.0.0.1:18080/f/s", headers, body)
+        })
+        .unwrap()
+        .meta
+    }
+
+    fn keys(m: &MetaMap) -> Vec<(&str, &str)> {
+        m.iter().collect()
+    }
+
+    const FA1: &str = "http://127.0.0.1:18080/f/fa1#FA1Name?profile-title=FragTitle&support-url=https://frag.example.test/support&announce=FragAnnounce&sub-info-text=FragInfo&fallback-url=https://fb.example.test/x";
+
+    #[test]
+    fn fragment_only_import_keeps_every_directive() {
+        let parsed = import(FA1, &[], LINK);
+        assert_eq!(
+            keys(&parsed.meta),
+            [
+                ("announce", "FragAnnounce"),
+                ("fallback-url", "https://fb.example.test/x"),
+                ("profile-title", "FragTitle"),
+                ("sub-info-text", "FragInfo"),
+                ("support-url", "https://frag.example.test/support"),
+            ]
+        );
+        assert_eq!(
+            happ_sub::meta::fetch_url(FA1),
+            "http://127.0.0.1:18080/f/fa1"
+        );
+    }
+
+    #[test]
+    fn import_keeps_fragment_keys_the_response_omits() {
+        let url = "http://127.0.0.1:18080/f/fa2#FA2Name?profile-title=FragTitle2&support-url=https://frag.example.test/fa2&subscription-userinfo=base64:dXBsb2FkPTE7IGRvd25sb2FkPTI7IHRvdGFsPTEwOyBleHBpcmU9MTg5MzQ1NjAwMA";
+        let parsed = import(url, &hdr(&[("announce", "FA2 header announce")]), LINK);
+        assert_eq!(parsed.meta.announce(), Some("FA2 header announce"));
+        assert_eq!(parsed.meta.profile_title(), Some("FragTitle2"));
+        assert_eq!(parsed.meta.user_info().unwrap().total, 10);
+    }
+
+    #[test]
+    fn body_beats_headers_beat_fragment() {
+        let url = "http://127.0.0.1:18080/f/fa3#FA3Name?profile-title=FA3FRAG&support-url=https://frag.example.test/fa3&announce=FA3FragAnnounce";
+        let headers = hdr(&[
+            ("profile-title", "FA3 HEADER"),
+            ("support-url", "https://header.example.test/fa3"),
+        ]);
+        let body = [b"#profile-title: FA3 BODY\n".as_slice(), LINK].concat();
+        let m = import(url, &headers, &body).meta;
+        assert_eq!(m.profile_title(), Some("FA3 BODY"));
+        assert_eq!(m.support_url(), Some("https://header.example.test/fa3"));
+        assert_eq!(m.announce(), Some("FA3FragAnnounce"));
+    }
+
+    #[test]
+    fn malformed_fragment_is_a_warning() {
+        let url = "http://127.0.0.1:18080/f/fc2#FC2?profile-title=MalformedOK&bogus";
+        let parsed = import(url, &hdr(&[("announce", "A")]), LINK);
+        assert_eq!(parsed.warnings, [Warning::InvalidFragment("bogus".into())]);
+        assert_eq!(parsed.meta.profile_title(), None);
+        assert_eq!(parsed.meta.announce(), Some("A"));
+    }
+
+    #[test]
+    fn fragment_is_ignored_on_refresh() {
+        let stored = import(FA1, &[], LINK).meta;
+        let m = refresh(
+            &stored,
+            MergeMode::Full,
+            &hdr(&[("profile-title", "B")]),
+            LINK,
+        );
+        assert_eq!(m.profile_title(), Some("B"));
+        assert_eq!(m.announce(), None);
+    }
+
+    #[test]
+    fn full_refresh_body_zero_clears_fallback_url_and_sub_info_text() {
+        let stored = import(FA1, &[], LINK).meta;
+        let body = [b"#fallback-url: 0\n#sub-info-text: 0\n".as_slice(), LINK].concat();
+        let m = refresh(
+            &stored,
+            MergeMode::Full,
+            &hdr(&[("profile-title", "FA1 B")]),
+            &body,
+        );
+        assert_eq!(keys(&m), [("profile-title", "FA1 B")]);
+    }
+
+    #[test]
+    fn full_refresh_header_zero_keeps_fallback_url() {
+        let mut stored = MetaMap::new();
+        stored.insert("fallback-url", "https://fb.example.test/fa2");
+        stored.insert("sub-info-text", "FragInfo2");
+        stored.insert("support-url", "https://frag.example.test/fa2");
+        let headers = hdr(&[
+            ("profile-title", "FA2 B"),
+            ("fallback-url", "0"),
+            ("sub-info-text", "0"),
+        ]);
+        let m = refresh(&stored, MergeMode::Full, &headers, LINK);
+        assert_eq!(
+            keys(&m),
+            [
+                ("fallback-url", "https://fb.example.test/fa2"),
+                ("profile-title", "FA2 B"),
+            ]
+        );
+    }
+
+    #[test]
+    fn full_refresh_without_meta_keeps_everything() {
+        let url = "http://127.0.0.1:18080/f/fa3#FA3Name?announce=FA3FragAnnounce&support-url=https://frag.example.test/fa3";
+        let stored = import(url, &hdr(&[("profile-title", "FA3 HEADER")]), LINK).meta;
+        let m = refresh(&stored, MergeMode::Full, &[], LINK);
+        assert_eq!(m, stored);
+    }
+
+    #[test]
+    fn partial_refresh_keeps_absent_keys() {
+        let stored = import(FA1, &[], LINK).meta;
+        let m = refresh(
+            &stored,
+            MergeMode::Partial,
+            &hdr(&[("profile-title", "B")]),
+            LINK,
+        );
+        assert_eq!(m.profile_title(), Some("B"));
+        assert_eq!(m.announce(), Some("FragAnnounce"));
+        assert_eq!(m.support_url(), Some("https://frag.example.test/support"));
     }
 }

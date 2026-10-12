@@ -59,6 +59,34 @@ fn main() -> Result<(), happ_sub::Error> {
 }
 ```
 
+## Import and refresh
+
+On import, pass the URL as the user gave it. Its fragment (`#name?key=value&…`) carries meta directives, and `parse` merges the response over them ([docs/03](docs/03-meta-protocol.md#url-fragment)). Fetch and store `meta::fetch_url(url)`, which is the URL without the fragment, as Happ does. On refresh, pass the stored map and say how the refresh started: `MergeMode::Full` for one the user started, which drops absent keys except the sticky ones, and `MergeMode::Partial` for a background update, which keeps them ([docs/03](docs/03-meta-protocol.md#precedence-and-refresh-merge)).
+
+```rust
+use happ_sub::{parse, Input, MergeMode, MetaMap, StoredState};
+
+fn refresh(
+    url: &str,
+    headers: &[(String, String)],
+    body: &[u8],
+    stored: &MetaMap,
+) -> Result<MetaMap, happ_sub::Error> {
+    let parsed = parse(&Input {
+        url,
+        headers,
+        body,
+        stored: Some(StoredState {
+            encrypted: false,
+            meta: Some(stored),
+            merge: MergeMode::Full,
+        }),
+        limits: None,
+    })?;
+    Ok(parsed.meta)
+}
+```
+
 ## Risk classes
 
 Every meta key maps to a `RiskClass` (`meta::classify_key`). The full per-key table is in [docs/03-meta-protocol.md](docs/03-meta-protocol.md#key-reference).
@@ -85,6 +113,8 @@ The crate follows Happ 4.7.1 as observed on a device, except where Happ loses da
 | Line that is not `<scheme>://…` | Skipped silently | Skipped, reported as `Warning::SkippedLine` |
 | Malformed `<scheme>://…` link | Imported as a broken server | Passed through for the caller's link parser |
 | Empty `200` body | Success with zero servers | `Err(Error::EmptyBody)` |
+| URL fragment segment without `=` (`#?a=1&b`) | Rejects the whole import | Fragment directives ignored, `Warning::InvalidFragment` |
+| `sub-info-text: 0` on an import without a fragment | Stored as the text `0` | Dropped, as on every later merge |
 
 ## Key material
 

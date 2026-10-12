@@ -24,6 +24,8 @@ IngestSubscription(input, stored) -> Result<Import, Error>
    else if s starts with "happ://add/"      → url = s without "happ://add/"
    else if s starts with "happ://routing/"  → return ImportRouting(s)          // 06
    else                                     → url = s
+   fragment_meta = directives after "#…?" of url, on import only               // 03
+   store and fetch url without its fragment
 
 2. Fetch                                                                       // 07
    GET url with timeout = stored.meta["subscription-request-timeout"] clamped to 5..15, else 7 s
@@ -51,7 +53,10 @@ IngestSubscription(input, stored) -> Result<Import, Error>
 
 5. Merge metadata                                                              // 03
    response_meta = header_meta, then body_meta overwrites
-   meta          = response_meta + sticky keys of stored.meta it lacks
+   on import:  meta = fragment_meta, then response_meta overwrites; absent keys kept
+   on refresh: meta = response_meta + keys of stored.meta it lacks (sticky keys only
+               on a user-started refresh, all keys on a background update)
+   a body "0" clears fallback-url, host, insecure, …; no meta at all keeps stored.meta
 
 6. Routing                                                                     // 06
    actions = routing_lines ++ meta["routing"], each add / onadd / off; undecodable ones are skipped with a warning

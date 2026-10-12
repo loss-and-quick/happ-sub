@@ -19,8 +19,13 @@ How each load-bearing claim in these documents was established, which earlier cl
 | 91 meta keys plus the `base64:` prefix and four `subscription-userinfo` field names | 96 string constants in `MetaParams` | Vendor key list (90 keys; `reset` is undocumented) | **VERIFIED** |
 | Every key except `hwidlink` and `reset` is header-deliverable | `lw2.java:13` reads 89 keys | 7 keys seen as headers on a live provider; on device | **VERIFIED** |
 | Body directive overrides header | `pc6.a(headerMeta, bodyMeta)` | On device | **VERIFIED** |
-| Refresh drops absent keys except a sticky set | `MetaParams.Companion.c` / `d` | On device | **VERIFIED** |
-| A value of `0` clears one of seven sticky keys (`ResetInfo`) | `MetaParams.Companion.a`, `e` | none | **INFERRED** |
+| Refresh drops absent keys except a sticky set (`isFull`) | `MetaParams.Companion.c` / `d` | On device | **VERIFIED** |
+| The fetch after an import keeps absent keys (`isFull = false`) | `MainActivity.T` → `P(…, false, …)` | On device ([below](#url-fragment-and-merge-modes-2026-10-12)) | **VERIFIED** |
+| Background updates keep absent keys | `SubscriptionUpdater$UpdateTask`, `g92.n` / `g92.o` pass `isFull = false` to `vk7.b` | none | **INFERRED** |
+| A response without meta leaves stored meta untouched | `e53.b`: merge skipped when the parsed `MetaParams` is empty | On device | **VERIFIED** |
+| A body `0` clears one of seven sticky keys; a header `0` does not | `MetaParams.Companion.a`, `e`; `pc6.a` takes `ResetInfo` from the body | On device | **VERIFIED** |
+| `sub-info-text` / `sub-info-button-text` equal to `0` are cleared | `MetaParams.Companion.c` | On device (`sub-info-text`, header and body) | **VERIFIED** |
+| URL fragment directives: grammar, import-only, fragment not sent | `hq4.p`, `if7.b`, `if7.c`, `MetaParams.Companion.a(List, true)` | On device | **VERIFIED** |
 | `profile-update-interval` in hours, 1 to 730 | `vl7.java:11` (`new pb3(1, 730, 1)`) | [App management](https://www.happ.su/main/dev-docs/app-management); on device | **VERIFIED** |
 | `routing` header carries a routing deeplink | Live provider (Happ User-Agents only) | `lw2`, `ng6`; on device | **VERIFIED** |
 | Default User-Agent and request headers | `wb8.S`, `e52.java:208` | Captured on device | **VERIFIED** |
@@ -74,7 +79,9 @@ The outcome of each step was read from Happ's own state rather than from the scr
 | 03 | `profile-title` capped at 25 characters | Truncated to 25 when stored | Confirmed |
 | 03 | Body directive overrides header | Body won for every conflicting key; header-only and body-only keys kept | Confirmed |
 | 03 | Refresh keeps keys absent from the new response | Most keys dropped; a sticky set kept | Contradicted |
-| 03 | `ResetInfo` wire format | Not observed; `reset` key exists; code reads value `0` as "clear" | Partly resolved |
+| 03 | `ResetInfo` wire format | Body `0` clears; header `0` ignored; `sub-info-text` `0` clears from any transport (second session) | Resolved |
+| 03 | Which update paths keep absent keys | Import fetch keeps them; refresh button drops them (second session) | Resolved |
+| 03 | URL fragment merged over stored meta on import | Fragment becomes the initial meta; the first response is merged over it without dropping (second session) | Confirmed |
 | 02 | `#key: value`, space optional | `#key:value` accepted | Confirmed |
 | 02 | Handling of other `#` lines unknown | `# comment` and `#Not-A-Key value` dropped silently | Resolved |
 | 02 | Whole-body Base64 accepts the URL-safe alphabet | Happ mis-decodes it: one broken server, the rest lost; standard, unpadded and 76-column wrapped bodies import | Contradicted |
@@ -104,6 +111,26 @@ The outcome of each step was read from Happ's own state rather than from the scr
 
 The live provider probe added: format switching by `User-Agent`, the `routing` header only for `User-Agent`s starting with `Happ`, per-request randomisation of the link list, a bare IPv6 VLESS host, Hysteria2 `xray-extra-params`, no device-identifier enforcement, no body encryption with `?key=` and no body directives ([02](02-subscription-body.md#live-provider-behaviour), [07](07-fetch-and-update.md#provider-behaviour-observed-live)).
 
+### URL fragment and merge modes (2026-10-12)
+
+Method: on-device mock 2026-10-12, a second session with the same phone and Happ 4.7.1 build, reinstalled for the run and uninstalled afterwards. The method is the one [above](#method-happ-on-a-device-against-a-mock-server), with three changes. The MMKV key of the new install was found by dumping the Java heap within a second of a cold start, before the decrypted key string was collected, and trying every 16-character window. Each import used its own path, with the directives in the `happ://add/` link's fragment. Refreshes were the subscription's refresh button, tapped only while Happ was the resumed activity. The decompiled code was read from the same APK with jadx (`if7.b`, `if7.c`, `hq4.p`, `qk7.e`, `e53.b`, `pc6.a`, `MetaParams.Companion.a` / `c` / `d` / `e`, `MetaParams.j1`, `MainActivity.T` / `l0`, `vk7.b` and its callers).
+
+| Step | Observation |
+|---|---|
+| Import with `#Name?profile-title=…&support-url=…&announce=…&sub-info-text=…&fallback-url=…`, response without meta | Request line `GET /f/fa1`, no fragment; stored `url` without the fragment, `originUrl` with it; all five keys stored |
+| Same, response with only an `announce` header | Fragment keys kept next to the header's (`isFull = false`); `subscription-userinfo=base64:…` decoded |
+| Fragment, header and body all set `profile-title`; header and fragment set `support-url` | Body title, header `support-url`, fragment-only `announce` kept |
+| `%20`, `%3A%2F%2F`, `+`, `base64:…==`, `p?a=b&c=d` in values | Not percent-decoded; `support-url` with `%3A` rejected; `+` kept; padded Base64 decoded; value cut at the second `=`, `c=d` ignored |
+| `…&bogus` | Import failed, "Unknown content type", no request, no subscription |
+| Repeated and mixed-case keys, padded with spaces, unknown key | Last value wins, keys case-insensitive, keys and values trimmed, unknown key ignored |
+| `#name#?profile-title=…` | Stored URL kept `#name`, no directives applied |
+| `reset=1` | Stored `reset: true`, `resetHandled: false`; nothing else for an ordinary subscription |
+| `happ://add/` of an existing URL again | Same subscription ID; metadata replaced by the new fragment's (none) and the response stored as on import, not merged |
+| Refresh button, body `#fallback-url: 0` and `#sub-info-text: 0`, no other keys | `fallback-url` and `sub-info-text` removed; non-sticky `announce`, `support-url` dropped |
+| Refresh button, headers `fallback-url: 0` and `sub-info-text: 0` | `fallback-url` kept, `sub-info-text` removed; `support-url`, `subscription-userinfo` dropped |
+| Refresh button, response without any meta | Stored metadata unchanged, `lastUpdated` advanced |
+| App restart with `subscription-auto-update-open-enable: true` | No request: the on-open update only refreshes subscriptions whose interval has elapsed ([07](07-fetch-and-update.md#scheduling)) |
+
 ## Corrections
 
 Earlier drafts of this research made the claims below; each was checked and corrected.
@@ -128,15 +155,18 @@ Earlier drafts of this research made the claims below; each was checked and corr
 | A JSON object or array element without `outbounds` is rejected | Happ accepts it as `CUSTOM`; the crate's rejection is a deliberate restriction | On device |
 | An invalid link line yields `parsing_error_invalid_server` | Non-link lines are skipped silently; malformed links import as broken servers | On device |
 | `HashedDomain = hex(SHA-256(domain))` | SHA-256 of the URL authority as written (`host:port` when the URL has a port), or of the `host` meta value when set | `hashedDomain` of a stored subscription on device; `uk8.q` |
+| Sending `0` for one of seven sticky keys clears it; other sticky keys cannot be cleared | Only a body directive clears them: a header `0` is ignored because `pc6.a` takes `ResetInfo` from the body. `sub-info-text` and `sub-info-button-text` are also cleared by `0` or an empty value, from any transport | On-device refreshes with header and body `0`; `MetaParams.j1`, `MetaParams.Companion.c` |
+| Every refresh drops keys the response omits | Only refreshes with `isFull` (refresh button, "update all"); the fetch after an import keeps them, and a response with no meta changes nothing | On device; `MainActivity.T`, `e53.b` |
+| The crate does not parse the URL fragment | `meta::parse_fragment`; `parse` merges the response over the fragment on import | `hq4.p`, `if7.b`; on device |
 
 ## Open items
 
 | Item | Status |
 |---|---|
 | What sets a subscription's status to `EXTRA` (`SubscriptionItem.u0`, from `eq0` / `xp0`), and how `fallback-url`, `new-url`, `new-domain`, `host`, `insecure`, `resolve-address` and `fragment` behave once it is set | **UNKNOWN** |
-| `reset`: read only from the URL fragment and only by the extra-check path; its effect | **UNKNOWN** |
-| `ResetInfo`: the value `0` clears seven sticky keys | **INFERRED**; never observed |
-| Which update paths run the refresh merge with its drop flag clear (then nothing is dropped) | **UNKNOWN**; every refresh observed on device dropped keys |
+| `reset`: code broadcasts a re-import from `originUrl` without `reset=1`; only on the extra-check path | **INFERRED**; stored but inert for an ordinary subscription |
+| Partial merge of the WorkManager job, `g92` batch update and `p71` update | **INFERRED** from `vk7.b` callers; only the import fetch was observed |
+| Edit-URL path (`qk7.e`) merging a fragment with `isFull = true` | **INFERRED**; not exercised |
 | `fm` (`FinalMaskBean`) grammar | **UNKNOWN**; the key is recognised as `finalmask` |
 | Behaviour of the update schedule after failed updates | **UNKNOWN**; the due-time formula is **INFERRED** |
 | `crypt` … `crypt4` links from the vendor | **UNKNOWN**; the generator emits only `crypt5` |

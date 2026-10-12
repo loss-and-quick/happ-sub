@@ -1,12 +1,13 @@
-//! Subscription metadata protocol: dual transport, key classification, merge rules.
+//! Subscription metadata protocol: three transports, key classification, merge rules.
 //!
-//! Happ delivers subscription configuration via two simultaneous transports (a third, the
-//! subscription URL fragment, is left to the caller):
-//! 1. HTTP response headers (case-insensitive names)
-//! 2. Subscription body directives (`#key: value`)
+//! Happ delivers subscription configuration via three transports:
+//! 1. The subscription URL fragment (`https://host/sub#name?key=value&key=value`), read once on
+//!    import
+//! 2. HTTP response headers (case-insensitive names)
+//! 3. Subscription body directives (`#key: value`)
 //!
-//! When both carry a key, **the body directive wins**. Values may be raw strings or Base64
-//! prefixed with `base64:`.
+//! A later transport wins on a key conflict: body over headers over fragment. Values may be raw
+//! strings or Base64 prefixed with `base64:`.
 //!
 //! # Policy Model
 //! Provider directives can reconfigure the client's network boundaries, so this module never
@@ -148,8 +149,8 @@ pub const KNOWN_KEYS: &[(&str, RiskClass)] = &[
 /// Keys that travel in the subscription URL and that Happ never reads from a header.
 const URL_ONLY_KEYS: [&str; 2] = ["hwidlink", "reset"];
 
-/// Keys Happ keeps across a refresh when the new response omits them; every other key is
-/// dropped (`MetaParams.Companion.c`).
+/// Keys Happ keeps across a [`MergeMode::Full`] refresh when the new response omits them; every
+/// other key is dropped (`MetaParams.Companion.c`).
 pub const REFRESH_STICKY_KEYS: &[&str] = &[
     "installid",
     "sub-info-color",
@@ -158,7 +159,6 @@ pub const REFRESH_STICKY_KEYS: &[&str] = &[
     "sub-info-button-link",
     "sub-expire",
     "sub-expire-button-link",
-    // Happ clears these when the provider sends the value `0`; the crate keeps `0` as a value.
     "fragment",
     "resolve-address",
     "host",
@@ -167,6 +167,31 @@ pub const REFRESH_STICKY_KEYS: &[&str] = &[
     "notification-subs-expire",
     "fallback-url",
 ];
+
+/// Sticky keys a body `0` clears; a header or fragment `0` is dropped (`ResetInfo`, `pc6.a`).
+pub const RESET_CLEARABLE_KEYS: &[&str] = &[
+    "fragment",
+    "resolve-address",
+    "host",
+    "insecure",
+    "providerid",
+    "notification-subs-expire",
+    "fallback-url",
+];
+
+/// Happ drops these after a merge when the value is `0` or empty (`MetaParams.Companion.c`).
+const ZERO_CLEARED_TEXT_KEYS: [&str; 2] = ["sub-info-text", "sub-info-button-text"];
+
+/// How [`refresh_merge`] treats stored keys that the new response omits (Happ's `isFull`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MergeMode {
+    /// A refresh the user started: absent keys are dropped except [`REFRESH_STICKY_KEYS`].
+    #[default]
+    Full,
+    /// The fetch right after an import and background updates: every absent key is kept.
+    Partial,
+}
 
 /// A classified parameter change proposed by the subscription provider.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -594,13 +619,68 @@ pub fn parse_headers(headers: &[(String, String)], limits: &Limits) -> Result<Me
     let mut map = MetaMap::new();
     for (k, v) in headers {
         let k = k.trim();
-        if !is_known_key(k) || URL_ONLY_KEYS.iter().any(|u| k.eq_ignore_ascii_case(u)) {
+        if !is_known_key(k)
+            || URL_ONLY_KEYS.iter().any(|u| k.eq_ignore_ascii_case(u))
+            || is_reset_clear(k, v)
+        {
             continue;
         }
         check_meta_limits(&map, k, v, limits)?;
         map.insert(k, v);
     }
     Ok(map)
+}
+
+/// The subscription URL without its fragment: what goes on the wire and what Happ stores.
+pub fn fetch_url(url: &str) -> &str {
+    url.split_once('#').map_or(url, |(u, _)| u)
+}
+
+/// Directives in the URL fragment, `#<name>?<key>=<value>&…`, with Happ's `if7.b` grammar.
+pub fn parse_fragment(url: &str, limits: &Limits) -> Result<MetaMap, Error> {
+    let mut map = MetaMap::new();
+    let Some((_, fragment)) = url.split_once('#') else {
+        return Ok(map);
+    };
+    if fragment.contains('#') {
+        return Ok(map);
+    }
+    let Some((_, params)) = fragment.split_once('?') else {
+        return Ok(map);
+    };
+    if params.is_empty() {
+        return Ok(map);
+    }
+    for pair in params.split('&') {
+        let mut parts = pair.split('=');
+        let (Some(k), Some(v)) = (parts.next(), parts.next()) else {
+            return Err(Error::InvalidFragment(pair.to_string()));
+        };
+        let k = k.trim();
+        if !is_known_key(k) || k.eq_ignore_ascii_case("hwidlink") || is_reset_clear(k, v) {
+            continue;
+        }
+        check_meta_limits(&map, k, v, limits)?;
+        map.insert(k, v);
+    }
+    Ok(map)
+}
+
+/// Whether `value` asks Happ to clear the sticky key `key` instead of storing a value.
+fn is_reset_clear(key: &str, value: &str) -> bool {
+    let key = key.trim();
+    if !RESET_CLEARABLE_KEYS
+        .iter()
+        .any(|k| k.eq_ignore_ascii_case(key))
+    {
+        return false;
+    }
+    let value = value.trim();
+    if key.eq_ignore_ascii_case("providerid") {
+        // `ProviderId.REGEX` is `^[a-zA-Z0-9]{8}$`; anything else, `0` included, clears it.
+        return !(value.len() == 8 && value.bytes().all(|b| b.is_ascii_alphanumeric()));
+    }
+    value == "0"
 }
 
 /// Enforce [`Limits::max_meta_keys`] and [`Limits::max_meta_value_len`] before inserting.
@@ -632,20 +712,31 @@ pub fn merge_body_over_headers(headers: &MetaMap, body: &MetaMap) -> MetaMap {
     merged
 }
 
-/// Merge newly fetched metadata over previously stored metadata across a subscription refresh.
-///
-/// The new response replaces the stored map; only [`REFRESH_STICKY_KEYS`] it omits keep their
-/// stored values.
-pub fn refresh_merge(old: &MetaMap, incoming: &MetaMap) -> MetaMap {
-    let mut merged = incoming.clone();
-    for key in REFRESH_STICKY_KEYS {
-        if let Some(v) = old.entries.get(*key) {
-            merged
-                .entries
-                .entry(key.to_string())
-                .or_insert_with(|| v.clone());
+/// Merge response metadata over stored metadata like Happ's `MetaParams.Companion.c`: a response
+/// without known keys changes nothing, absent keys follow `mode`, and clear values remove keys.
+pub fn refresh_merge(old: &MetaMap, incoming: &MetaMap, mode: MergeMode) -> MetaMap {
+    if !incoming.iter().any(|(k, _)| is_known_key(k)) {
+        let mut kept = old.clone();
+        kept.overlay(incoming);
+        return kept;
+    }
+    let mut merged = MetaMap::new();
+    for (k, v) in old.iter() {
+        let sticky = REFRESH_STICKY_KEYS.contains(&k);
+        if mode == MergeMode::Partial || sticky {
+            merged.entries.insert(k.to_string(), v.to_string());
         }
     }
+    for (k, v) in incoming.iter() {
+        if is_reset_clear(k, v) {
+            merged.entries.remove(k);
+        } else {
+            merged.entries.insert(k.to_string(), v.to_string());
+        }
+    }
+    merged.entries.retain(|k, v| {
+        !(ZERO_CLEARED_TEXT_KEYS.contains(&k.as_str()) && (v.is_empty() || v == "0"))
+    });
     merged
 }
 
@@ -730,7 +821,7 @@ mod tests {
         incoming.insert("profile-title", "New Title");
         incoming.insert("sub-expire", "false");
 
-        let merged = refresh_merge(&old, &incoming);
+        let merged = refresh_merge(&old, &incoming, MergeMode::Full);
         let keys: Vec<(&str, &str)> = merged.iter().collect();
         assert_eq!(
             keys,
@@ -741,6 +832,157 @@ mod tests {
                 ("sub-info-text", "kept"),
             ]
         );
+    }
+
+    fn map(pairs: &[(&str, &str)]) -> MetaMap {
+        let mut m = MetaMap::new();
+        for (k, v) in pairs {
+            m.insert(k, v);
+        }
+        m
+    }
+
+    #[test]
+    fn partial_merge_keeps_absent_keys() {
+        let old = map(&[("announce", "old"), ("support-url", "https://o.example")]);
+        let incoming = map(&[("profile-title", "New")]);
+        let merged = refresh_merge(&old, &incoming, MergeMode::Partial);
+        assert_eq!(merged.announce(), Some("old"));
+        assert_eq!(merged.support_url(), Some("https://o.example"));
+        assert_eq!(merged.profile_title(), Some("New"));
+    }
+
+    #[test]
+    fn response_without_known_keys_leaves_stored_map() {
+        let old = map(&[("announce", "kept"), ("profile-title", "T")]);
+        let incoming = map(&[("x-vendor-knob", "1")]);
+        let merged = refresh_merge(&old, &incoming, MergeMode::Full);
+        assert_eq!(merged.announce(), Some("kept"));
+        assert_eq!(merged.profile_title(), Some("T"));
+        assert_eq!(merged.get("x-vendor-knob"), Some("1"));
+    }
+
+    #[test]
+    fn zero_clears_resettable_sticky_keys_in_both_modes() {
+        let old = map(&[
+            ("fallback-url", "https://fb.example"),
+            ("providerid", "abcd1234"),
+            ("host", "h.example"),
+            ("sub-expire-button-link", "https://renew.example"),
+        ]);
+        let incoming = map(&[
+            ("fallback-url", "0"),
+            ("providerid", "not-valid"),
+            ("sub-expire-button-link", "0"),
+        ]);
+        for mode in [MergeMode::Full, MergeMode::Partial] {
+            let merged = refresh_merge(&old, &incoming, mode);
+            assert_eq!(merged.fallback_url(), None, "{mode:?}");
+            assert_eq!(merged.get("providerid"), None, "{mode:?}");
+            assert_eq!(merged.get("host"), Some("h.example"), "{mode:?}");
+            // Always-sticky keys take `0` as an ordinary value.
+            assert_eq!(merged.sub_expire_button_link(), Some("0"), "{mode:?}");
+        }
+    }
+
+    #[test]
+    fn zero_or_empty_sub_info_text_is_removed() {
+        let old = map(&[("sub-info-text", "info"), ("sub-info-button-text", "btn")]);
+        let incoming = map(&[("sub-info-text", "0"), ("sub-info-button-text", "")]);
+        let merged = refresh_merge(&old, &incoming, MergeMode::Full);
+        assert_eq!(merged.sub_info_text(), None);
+        assert_eq!(merged.sub_info_button_text(), None);
+        let fresh = refresh_merge(&MetaMap::new(), &incoming, MergeMode::Partial);
+        assert!(fresh.is_empty());
+    }
+
+    #[test]
+    fn header_zero_for_clearable_key_is_dropped() {
+        let headers = h(&[
+            ("fallback-url", "0"),
+            ("providerid", "short"),
+            ("sub-info-text", "0"),
+            ("sub-expire", "0"),
+        ]);
+        let m = parse_headers(&headers, &Limits::default()).unwrap();
+        let keys: Vec<&str> = m.iter().map(|(k, _)| k).collect();
+        assert_eq!(keys, ["sub-expire", "sub-info-text"]);
+    }
+
+    fn frag(url: &str) -> Result<MetaMap, Error> {
+        parse_fragment(url, &Limits::default())
+    }
+
+    #[test]
+    fn fragment_grammar() {
+        let m = frag("https://x/s#Name?profile-title=T&support-url=https://s.example/a").unwrap();
+        assert_eq!(m.profile_title(), Some("T"));
+        assert_eq!(m.support_url(), Some("https://s.example/a"));
+        for url in [
+            "https://x/s",
+            "https://x/s#name",
+            "https://x/s#name?",
+            "https://x/s#a#?profile-title=T",
+        ] {
+            assert!(frag(url).unwrap().is_empty(), "{url}");
+        }
+    }
+
+    #[test]
+    fn fragment_keys_values_and_repeats() {
+        let m = frag("https://x/s#?profile-title=First&announce=A1&Profile-Title=Second& announce =A2 &x-unknown=1&hwidlink=abc&reset=1").unwrap();
+        let pairs: Vec<(&str, &str)> = m.iter().collect();
+        assert_eq!(
+            pairs,
+            [
+                ("announce", "A2"),
+                ("profile-title", "Second"),
+                ("reset", "1")
+            ]
+        );
+    }
+
+    #[test]
+    fn fragment_values_are_not_percent_decoded_and_end_at_equals() {
+        let m = frag("https://x/s#?profile-title=Pct%20Title&profile-web-page-url=https://w.example/p?a=b&c=d&sub-info-button-link=https://b.example/x+y&announce=base64:RnJhZyDQkNC90L7QvdGBIOKckw==").unwrap();
+        assert_eq!(m.profile_title(), Some("Pct%20Title"));
+        assert_eq!(m.profile_web_page_url(), Some("https://w.example/p?a"));
+        assert_eq!(m.sub_info_button_link(), Some("https://b.example/x+y"));
+        assert_eq!(m.announce(), Some("Frag Анонс ✓"));
+    }
+
+    #[test]
+    fn fragment_segment_without_equals_is_an_error() {
+        for url in [
+            "https://x/s#?profile-title=T&bogus",
+            "https://x/s#?profile-title=T&",
+        ] {
+            assert!(matches!(frag(url), Err(Error::InvalidFragment(_))), "{url}");
+        }
+    }
+
+    #[test]
+    fn fragment_zero_is_dropped_and_limits_apply() {
+        let m = frag("https://x/s#?fallback-url=0&providerid=0&profile-title=T").unwrap();
+        let keys: Vec<&str> = m.iter().map(|(k, _)| k).collect();
+        assert_eq!(keys, ["profile-title"]);
+        let limits = Limits {
+            max_meta_keys: 1,
+            ..Limits::default()
+        };
+        assert!(matches!(
+            parse_fragment("https://x/s#?profile-title=T&announce=A", &limits),
+            Err(Error::LimitExceeded(_))
+        ));
+    }
+
+    #[test]
+    fn fetch_url_strips_the_fragment() {
+        assert_eq!(
+            fetch_url("https://x/s?key=key02#n?profile-title=T"),
+            "https://x/s?key=key02"
+        );
+        assert_eq!(fetch_url("https://x/s"), "https://x/s");
     }
 
     #[test]

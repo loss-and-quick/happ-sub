@@ -2,7 +2,8 @@
 //!
 //! * Body form detection (Base64 wrapping, JSON array, Xray or sing-box JSON, newline-delimited
 //!   links)
-//! * Metadata protocol (headers and `#key: value` directives, precedence, refresh merge)
+//! * Metadata protocol (URL fragment, headers and `#key: value` directives, precedence, refresh
+//!   merge)
 //! * Subscription body decryption (AES-128-GCM with versioned key tables)
 //! * URL unhiding (`happ://crypt/` … `happ://crypt5/`) with embedded (`builtin-url-keys`) or
 //!   caller-supplied RSA keys
@@ -27,7 +28,7 @@ pub mod routing;
 pub mod url_crypt;
 
 pub use body::Payload;
-pub use meta::{Limits, MetaMap, ProposedChange, RiskClass, UserInfo};
+pub use meta::{Limits, MergeMode, MetaMap, ProposedChange, RiskClass, UserInfo};
 pub use routing::{RoutingAction, RoutingProfile};
 
 #[cfg(doctest)]
@@ -37,7 +38,7 @@ struct ReadmeDoctests;
 /// Input package supplied by caller for subscription ingestion.
 #[derive(Debug, Clone)]
 pub struct Input<'a> {
-    /// Subscription fetch URL (used to extract the `?key=` query parameter).
+    /// Subscription URL: `?key=` selects the body key; on import the fragment carries directives.
     pub url: &'a str,
     /// Raw HTTP response headers as `(name, value)` pairs.
     pub headers: &'a [(String, String)],
@@ -56,6 +57,8 @@ pub struct StoredState<'a> {
     pub encrypted: bool,
     /// Previously active metadata map for refresh merge fallback.
     pub meta: Option<&'a MetaMap>,
+    /// How stored keys the response omits are treated; see [`MergeMode`].
+    pub merge: MergeMode,
 }
 
 /// How the response body was treated with respect to body encryption.
@@ -109,6 +112,8 @@ pub enum Warning {
     InvalidRouting(String),
     /// A body line that is neither a share link, a directive nor a comment.
     SkippedLine(String),
+    /// A URL fragment segment without `=`; Happ rejects the import, the crate skips its directives.
+    InvalidFragment(String),
 }
 
 /// Successfully decoded subscription package.
@@ -150,6 +155,8 @@ pub enum Error {
     LimitExceeded(String),
     /// Byte stream is not valid UTF-8.
     Utf8(String),
+    /// A URL fragment directive segment has no `=` ([`meta::parse_fragment`]).
+    InvalidFragment(String),
     /// The body was signalled as encrypted and could not be decrypted.
     ///
     /// Happ instead imports an empty body and wipes the server list; failing lets the caller
@@ -176,6 +183,7 @@ impl std::fmt::Display for Error {
             Error::UnknownDeeplink(s) => write!(f, "unknown deeplink action: {s}"),
             Error::LimitExceeded(s) => write!(f, "resource limit exceeded: {s}"),
             Error::Utf8(e) => write!(f, "UTF-8 error: {e}"),
+            Error::InvalidFragment(s) => write!(f, "URL fragment directive without `=`: {s:?}"),
             Error::Decrypt { key_id, reason } => match key_id {
                 Some(id) => write!(f, "body decryption with {id} failed: {reason}"),
                 None => write!(f, "body decryption failed: {reason}"),
@@ -203,10 +211,25 @@ pub fn parse(input: &Input) -> Result<Parsed, Error> {
         body::push_routing(link, &limits, &mut routing, &mut warnings);
     }
 
-    let current_meta = meta::merge_body_over_headers(&header_meta, &detected.meta);
-    let meta = match input.stored.and_then(|s| s.meta) {
-        Some(old) => meta::refresh_merge(old, &current_meta),
-        None => current_meta,
+    let response_meta = meta::merge_body_over_headers(&header_meta, &detected.meta);
+    let meta = match input.stored {
+        Some(StoredState {
+            meta: Some(old),
+            merge,
+            ..
+        }) => meta::refresh_merge(old, &response_meta, merge),
+        // Happ reads the fragment only on import, then stores the URL without it.
+        _ => {
+            let fragment_meta = match meta::parse_fragment(input.url, &limits) {
+                Ok(m) => m,
+                Err(Error::InvalidFragment(segment)) => {
+                    warnings.push(Warning::InvalidFragment(segment));
+                    MetaMap::new()
+                }
+                Err(e) => return Err(e),
+            };
+            meta::refresh_merge(&fragment_meta, &response_meta, MergeMode::Partial)
+        }
     };
 
     Ok(Parsed {
@@ -294,6 +317,14 @@ mod tests {
         assert_eq!(extract_query_param("https://x/s?key=", "key"), None);
         assert_eq!(extract_query_param("https://x/s#?key=key02", "key"), None);
         assert_eq!(extract_query_param("https://x/s", "key"), None);
+        assert_eq!(
+            extract_query_param("https://x/s?a=1#n?key=key03&profile-title=T", "key"),
+            None
+        );
+        assert_eq!(
+            extract_query_param("https://x/s?key=key02#n?key=key03", "key"),
+            Some("key02")
+        );
     }
 
     #[cfg(feature = "body-crypt")]
