@@ -7,7 +7,8 @@ An end-to-end import pipeline for a Happ-compatible client, and how the work spl
 | Step | Who |
 |---|---|
 | Deeplink parsing, `crypt*` URL decryption | crate (`deeplink`; `url_crypt` with `builtin_keyring()` or a caller-supplied keyring) |
-| HTTP fetch, timeouts, TLS, cookies, `User-Agent` | caller |
+| HTTP fetch, timeouts, TLS, cookies | caller |
+| Happ's `User-Agent` and SSAID (`X-HWID`) | crate (`device`, from a caller-supplied user key); whether to send them is the caller's policy |
 | Body decryption, directive extraction, payload detection, routing decoding, meta merge | crate (`parse`) |
 | Share-link parsing | caller |
 | Deciding which meta keys to apply | caller, using `RiskClass` |
@@ -31,7 +32,8 @@ IngestSubscription(input, stored) -> Result<Import, Error>
    GET url with timeout = stored.meta["subscription-request-timeout"] clamped to 5..15, else 7 s
    User-Agent "Happ/<version>" if the Happ-specific response is wanted: providers pick the
    body format and the routing header by it
-   no device-identifier headers unless the user enabled them for this subscription
+   device-identifier headers (X-HWID, X-Device-OS, X-Ver-OS, X-Device-model) per the
+   client's policy; Happ sends them by default, with X-HWID = its SSAID on the device
    non-2xx → Err(Network)
 
 3. Decrypt the body                                                            // 04
@@ -84,7 +86,7 @@ See [03](03-meta-protocol.md#risk-classes) for the classes and the per-key assig
 
 ## Things not to implement
 
-Happ also talks to vendor services for licensing, device limits, crash reporting and cloud sync: the `time-ntp.com` REST gate, the DNSTT tunnel, Sentry, CloudKit `send_to_device`, the daily statistics check and the domain-hash registry ([08](08-device-binding.md)). None of that is part of the subscription format, and a third-party client should not contact those services, send device identifiers by default, or enforce `hwidlink`.
+Happ also talks to vendor services for licensing, device limits, crash reporting and cloud sync: the `time-ntp.com` REST gate, the DNSTT tunnel, Sentry, CloudKit `send_to_device`, the daily statistics check and the domain-hash registry ([08](08-device-binding.md)). None of that is part of the subscription format, and a third-party client should not contact those services or enforce `hwidlink`. Whether it sends device identifiers is its own policy ([07](07-fetch-and-update.md#device-identifiers)).
 
 ## Fixtures
 

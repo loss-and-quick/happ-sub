@@ -11,7 +11,7 @@ A specification of the wire formats used by Happ-compatible (`su.happ.proxyutili
 | [05 URL encryption](05-url-encryption.md) | `happ://crypt/` … `happ://crypt5/` dispatch and wire layout, measured sizes, embedded RSA keys and their provenance |
 | [06 Deeplinks and routing](06-deeplinks-and-routing.md) | `happ://` actions, routing profile delivery, what Happ does with a profile, JSON schema |
 | [07 Fetch and update](07-fetch-and-update.md) | Request headers and the default `User-Agent`, timeouts, observed provider behaviour, `new-url` / `new-domain` / `fallback-url`, persistence, scheduling, update errors |
-| [08 Device binding and vendor services](08-device-binding.md) | HWID, `hwidlink`, REST / DNSTT / FILE licensing checks, `providerid` / `installid`, the domain-hash registry, vendor endpoints, and why a client should ignore all of it |
+| [08 Device binding and vendor services](08-device-binding.md) | HWID and its SSAID derivation, `hwidlink`, REST / DNSTT / FILE licensing checks, `providerid` / `installid`, the domain-hash registry, vendor endpoints, and what a client controls |
 | [09 Implementation guide](09-implementation-guide.md) | Import pipeline, crate/caller split, policy, fixtures |
 | [10 Verification ledger](10-verification.md) | Evidence per claim, the five key confirmations, `crypt5` round trips, the 2026-10-12 live provider and on-device probes with their methods, corrections to earlier drafts, open items |
 

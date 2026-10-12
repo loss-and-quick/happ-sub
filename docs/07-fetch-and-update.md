@@ -20,7 +20,7 @@ Accept-Encoding: gzip
 
 | Header | Value |
 |---|---|
-| `User-agent` | Spelled exactly so. Built by `wb8.S("Android")` as `"Happ/4.7.1/" + os + "/" + "1791210317680" + "1703" + d + "50"`, where `1791210317680` is a millisecond timestamp (2026-10-05 14:25:17 UTC), `1703` the version code, and `d` is `6` on an even UTC day of the month and `5` on an odd one. Replaced by the `change-user-agent` key or a per-subscription user setting (`vl7.i`). |
+| `User-agent` | Spelled exactly so. Built by `wb8.S("Android")` as `"Happ/4.7.1/" + os + "/" + "1791210317680" + "1703" + d + "50"`, where `1791210317680` is a millisecond timestamp (2026-10-05 14:25:17 UTC), `1703` the version code, and `d` is `6` on an even UTC day of the month and `5` on an odd one. Replaced by the `change-user-agent` key or a per-subscription user setting (`vl7.i`). The crate's `device::user_agent` builds the default. |
 | `X-Device-Locale` | UI language tag, e.g. `en`, `ru` |
 | `X-HWID`, `X-Device-OS`, `X-Ver-OS`, `X-Device-model` | Sent by default: the `ANDROID_ID`, `Android` or `AndroidTV`, the Android release, `Build.MODEL`. The per-subscription "send HWID" switch is on by default. See [below](#device-identifiers). |
 | `Authorization` | `Basic <base64(user:pass)>` when the URL has userinfo (`https://user:pass@host/…`; `e52.java:205`, not exercised on device) |
@@ -42,9 +42,9 @@ All of these are `TrustBoundary` keys except the timeout ([03](03-meta-protocol.
 
 ## Device identifiers
 
-By default Happ identifies the device to the provider with `X-HWID` (the Android `ANDROID_ID`) plus `X-Device-OS`, `X-Ver-OS` and `X-Device-model` (**VERIFIED**, on-device mock). The meta keys `subscription-send-hwid-enabled`, `subscription-always-hwid-enable` and `subscription-hwid-in-cookie-enable` control this, `hwidlink` binds a subscription to one device, and `providerid` / `installid` tie it to the vendor's licensing backend. All of these are described, with code references, in [08](08-device-binding.md).
+By default Happ identifies the device to the provider with `X-HWID` (the per-app `ANDROID_ID`, or SSAID, [derived](08-device-binding.md#ssaid-derivation) from a per-user key and Happ's signing certificate) plus `X-Device-OS`, `X-Ver-OS` and `X-Device-model` (**VERIFIED**, on-device mock). The meta keys `subscription-send-hwid-enabled`, `subscription-always-hwid-enable` and `subscription-hwid-in-cookie-enable` control this, `hwidlink` binds a subscription to one device, and `providerid` / `installid` tie it to the vendor's licensing backend. All of these are described, with code references, in [08](08-device-binding.md).
 
-The crate classifies all of these keys as `DeviceIdentity`. A third-party client should not send device identifiers by default. If a provider requires them, sending them should be an explicit per-subscription user choice. The live provider served the same content with and without (fake) identifiers and sent no device-limit headers (live probe).
+The crate classifies all of these keys as `DeviceIdentity`. Which identifiers to send is the client's policy: a client may mirror Happ's defaults, sending the four headers with the SSAID Happ would send on that device (`device::ssaid`), or send them only for subscriptions where the user enabled it. The live provider served the same content with and without (fake) identifiers and sent no device-limit headers (live probe).
 
 ## Response
 

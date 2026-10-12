@@ -34,6 +34,7 @@ How each load-bearing claim in these documents was established, which earlier cl
 | `crypt5` step 5 is `base64_decode(swap_adjacent(inner))` | 5 of 5 links decrypt only in this order | Length arithmetic of `seg_len` | **VERIFIED** |
 | URL RSA key set is genuine | 5 of 5 links decrypt | Vendor [Crypto link](https://www.happ.su/main/dev-docs/crypto-link) public key equals `pkcs1_2` over the full modulus | **VERIFIED** |
 | HWID is `ANDROID_ID`, sent by default | `uk8.java:529`, `uj7.java:57` | [HWID links](https://www.happ.su/main/dev-docs/hwid-links); captured on device | **VERIFIED** |
+| HWID is Happ's SSAID: HMAC-SHA256 under the per-user key over `len_be32(cert) ‖ cert` of the highest scheme's certificates, first 16 hex characters | AOSP `SettingsProvider.generateSsaidLocked`, `generateUserKeyLocked`, `getLengthPrefix` | Computed from the device's per-user key and Happ's v2 certificate; equal to the `X-HWID` Happ sent in all 81 requests of two on-device probe sessions | **VERIFIED** |
 | `hwidlink` is checked locally | `hq4.java:447` | Vendor HWID docs | **VERIFIED** |
 | Sentry SDK bundled with auto-init off | `e96.java:154`, manifest | Sentry session cache on device | **VERIFIED** |
 | Domain hash registry | `assets/data.result` decrypts and parses | `j52.java`, `kz1.c` | **VERIFIED** |
