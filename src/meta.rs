@@ -308,6 +308,23 @@ pub fn normalize_untrusted_text(input: &str) -> String {
         .collect()
 }
 
+/// Happ's stored length of `profile-title`, in UTF-16 code units (Kotlin `take(25)`).
+pub const TITLE_MAX_UTF16: usize = 25;
+
+/// Truncates a title to [`TITLE_MAX_UTF16`] UTF-16 units without splitting a surrogate pair.
+pub fn truncate_title(s: &str) -> String {
+    // Happ's `take(25)` can keep a lone high surrogate; a pair straddling the cap is dropped whole.
+    let mut units = 0;
+    let end = s
+        .char_indices()
+        .find(|(_, c)| {
+            units += c.len_utf16();
+            units > TITLE_MAX_UTF16
+        })
+        .map_or(s.len(), |(i, _)| i);
+    s[..end].to_string()
+}
+
 /// Validates whether an Android application package identifier follows reverse-DNS grammar.
 pub fn validate_package_name(pkg: &str) -> bool {
     if pkg.is_empty() || pkg.len() > 128 {
@@ -497,7 +514,7 @@ impl MetaMap {
 
     // ── Typed accessors ────────────────────────────────────────────────
 
-    /// Subscription display title (`profile-title`); Happ truncates it to 25 characters.
+    /// Subscription display title (`profile-title`), untruncated; see [`truncate_title`].
     pub fn profile_title(&self) -> Option<&str> {
         self.get("profile-title")
     }
@@ -1079,6 +1096,30 @@ mod tests {
     fn text_normalization_strips_bidi() {
         let malicious = "Example \u{202E}txt.exe\u{202C} VPN";
         assert_eq!(normalize_untrusted_text(malicious), "Example txt.exe VPN");
+    }
+
+    #[test]
+    fn truncate_title_counts_utf16_units() {
+        assert_eq!(truncate_title("short"), "short");
+        assert_eq!(truncate_title(&"a".repeat(41)), "a".repeat(25));
+        // Multi-byte UTF-8 but one UTF-16 unit each.
+        assert_eq!(truncate_title(&"ж".repeat(30)), "ж".repeat(25));
+        // Twelve surrogate pairs fill 24 units; the thirteenth does not fit.
+        assert_eq!(truncate_title(&"🌐".repeat(13)), "🌐".repeat(12));
+    }
+
+    #[test]
+    fn truncate_title_never_splits_a_surrogate_pair() {
+        let straddling = format!("{}🗽tail", "a".repeat(24));
+        let t = truncate_title(&straddling);
+        assert_eq!(t, "a".repeat(24));
+        assert_eq!(t.encode_utf16().count(), 24);
+
+        let ends_on_cap = format!("{}🗽tail", "a".repeat(23));
+        assert_eq!(
+            truncate_title(&ends_on_cap),
+            format!("{}🗽", "a".repeat(23))
+        );
     }
 
     #[test]
