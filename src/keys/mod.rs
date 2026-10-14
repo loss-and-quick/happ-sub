@@ -7,11 +7,20 @@
 //! links client-side. It is `crypt5_keys.json` from
 //! <https://github.com/KernelEditor/HappDecrypt> at commit
 //! `8d0b97b1875446abb16a0d1b62492a404e766860`, unmodified.
+//!
+//! `incy-keymat.json` holds the two 4 KiB assets behind Incy's `incy://crypt1/` scheme
+//! (`res/raw/incy_assets_{a,b}.bin` in the INCY client). They are byte-identical to
+//! `assets/*.bin` in <https://github.com/INCY-DEV/incy-link-encoder>, which is MIT-licensed and
+//! states that the derived key is a published constant rather than a secret. The key itself is
+//! derived at run time by [`crate::incy_crypt::derive_key`], never stored.
 
 mod gen1;
 
 #[cfg(feature = "builtin-url-keys")]
 pub(crate) const URL_KEYS_JSON: &str = include_str!("url-keys.json");
+
+#[cfg(feature = "builtin-incy-keys")]
+pub(crate) const INCY_KEYMAT_JSON: &str = include_str!("incy-keymat.json");
 
 pub use gen1::KEYS_GEN1;
 

@@ -4,11 +4,11 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.80"
 license = "MIT OR Apache-2.0"
-description = "Happ-compatible subscription handling: body form detection, meta protocol, AES-128-GCM bodies, crypt1..5 URLs, routing and deeplinks"
+description = "Happ-compatible subscription handling: body form detection, meta protocol, AES-128-GCM bodies, crypt1..5 URLs, incy://crypt1, routing and deeplinks"
 authors = ["Kasumi Proxy Authors"]
 repository = "https://github.com/loss-and-quick/happ-sub"
 readme = "README.md"
-keywords = ["happ", "xray", "v2ray", "subscription", "proxy"]
+keywords = ["happ", "incy", "xray", "v2ray", "subscription", "proxy"]
 categories = ["network-programming", "parser-implementations", "encoding"]
 include = ["/src", "/README.md", "/LICENSE-MIT", "/LICENSE-APACHE"]
 
@@ -37,6 +37,10 @@ body-crypt = ["dep:aes-gcm"]
 url-crypt = ["dep:chacha20poly1305", "dep:rsa"]
 # Embeds the vendor RSA keys as `url_crypt::builtin_keyring` (about 125 KB of key data).
 builtin-url-keys = ["url-crypt"]
+# Incy's `incy://crypt1/` URL obfuscation (AES-256-GCM).
+incy-crypt = ["dep:aes-gcm", "dep:sha2"]
+# Embeds the two Incy keymat assets as `incy_crypt::builtin_key` (about 11 KB of key data).
+builtin-incy-keys = ["incy-crypt"]
 # Exposes `body_crypt::encrypt_with_table` for building test fixtures.
 test-vectors = ["body-crypt"]
 # Happ's SSAID (`X-HWID`) and User-Agent, with its embedded signing certificate.

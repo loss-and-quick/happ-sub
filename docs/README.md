@@ -13,8 +13,9 @@ A specification of the wire formats used by Happ-compatible (`su.happ.proxyutili
 | [07 Fetch and update](07-fetch-and-update.md) | Request headers and the default `User-Agent`, timeouts, observed provider behaviour, `new-url` / `new-domain` / `fallback-url`, persistence, scheduling, update errors |
 | [08 Device binding and vendor services](08-device-binding.md) | HWID and its SSAID derivation, `hwidlink`, REST / DNSTT / FILE licensing checks, `providerid` / `installid`, the domain-hash registry, vendor endpoints, and what a client controls |
 | [09 Implementation guide](09-implementation-guide.md) | Import pipeline, crate/caller split, policy, fixtures |
-| [10 Verification ledger](10-verification.md) | Evidence per claim, the five key confirmations, `crypt5` round trips, the 2026-10-12 live provider and on-device probes with their methods, corrections to earlier drafts, open items |
+| [10 Verification ledger](10-verification.md) | Evidence per claim, the five key confirmations, `crypt5` round trips, the `incy://crypt1/` derivation, the 2026-10-12 live provider and on-device probes with their methods, corrections to earlier drafts, open items |
+| [11 Incy URL obfuscation](11-incy-url-obfuscation.md) | `incy://crypt1/`: AES-256-GCM wire layout, sorted-JSON plaintext, the keymat key derivation, the client's leniency, link generation |
 
-Redacted live samples are under [`tests/fixtures/`](../tests/fixtures/). The body key table is in [`src/keys/gen1.rs`](../src/keys/gen1.rs) and the URL RSA keys are in [`src/keys/url-keys.json`](../src/keys/url-keys.json).
+Redacted live samples are under [`tests/fixtures/`](../tests/fixtures/). The body key table is in [`src/keys/gen1.rs`](../src/keys/gen1.rs), the URL RSA keys are in [`src/keys/url-keys.json`](../src/keys/url-keys.json) and the Incy keymat is in [`src/keys/incy-keymat.json`](../src/keys/incy-keymat.json).
 
 Not covered: Xray configuration semantics, provider panels, and the internals of the vendor's backend beyond what the client sends to it.

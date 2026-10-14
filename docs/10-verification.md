@@ -37,6 +37,8 @@ How each load-bearing claim in these documents was established, which earlier cl
 | `crypt5` field sizes | Measured on the 5 links | `0x20`/`0x8`/`0x10` steps in the native ChaCha path | **VERIFIED** |
 | `crypt5` step 5 is `base64_decode(swap_adjacent(inner))` | 5 of 5 links decrypt only in this order | Length arithmetic of `seg_len` | **VERIFIED** |
 | URL RSA key set is genuine | 5 of 5 links decrypt | Vendor [Crypto link](https://www.happ.su/main/dev-docs/crypto-link) public key equals `pkcs1_2` over the full modulus | **VERIFIED** |
+| `incy://crypt1/` is AES-256-GCM over `base64url(iv[12] ‖ ct ‖ tag[16])` with a sorted-JSON `{n,url,v}` plaintext | INCY 3.7.0 decoder and encoder (`wf/f.java`, `ig/d2.o`, decompiled with jadx 1.5.6) | Vendor [Deep links](https://docs.incy.cc/deep-links/) page; the vendor's pinned cross-platform vector | **VERIFIED** |
+| `incy://crypt1/` key `K1 = SHA-256("incy"‖"deep"‖"crypt1"‖"v2026.06"‖A[1024:1056]‖B[2048:2080])` | Key windows and salt assembly in the client's `wf/f.b`; obfuscated salt part decodes to `crypt1`, second offset is `Barcode.FORMAT_PDF417` = 2048 | Assets byte-identical to `INCY-DEV/incy-link-encoder` (MIT); fingerprint `b6bf7084…` pinned in its JS, Python, PHP and Go ports | **VERIFIED** |
 | HWID is `ANDROID_ID`, sent by default | `uk8.java:529`, `uj7.java:57` | [HWID links](https://www.happ.su/main/dev-docs/hwid-links); captured on device | **VERIFIED** |
 | HWID is Happ's SSAID: HMAC-SHA256 under the per-user key over `len_be32(cert) ‖ cert` of the highest scheme's certificates, first 16 hex characters | AOSP `SettingsProvider.generateSsaidLocked`, `generateUserKeyLocked`, `getLengthPrefix` | Computed from the device's per-user key and Happ's v2 certificate; equal to the `X-HWID` Happ sent in all 81 requests of two on-device probe sessions | **VERIFIED** |
 | `hwidlink` is checked locally | `hq4.java:447` | Vendor HWID docs | **VERIFIED** |
@@ -57,6 +59,10 @@ The Unicorn-based re-extractor runs the same five checks as gates; the fifth che
 ## `crypt5` round trips
 
 Five links were generated on 2026-10-12 from `https://crypto.happ.su/api-v2.php` with neutral `https://example.com/…` targets. All five decrypt to the expected URL, with no error, using the crate's implementation and the embedded key set; the crate's integration test `crypt5_vendor_samples::vendor_generated_links_decrypt` repeats this on every run with `builtin-url-keys`. The links confirm the 4-byte half-swap, the 8-character marker, the 12-byte nonce, the 8-byte salt, the two random filler fields and a single 512-byte RSA block. All five use marker `vdfzfoff`.
+
+## `incy://crypt1/` derivation
+
+The INCY key material is the easiest thing in either client to check, because three independent copies of it exist: the APK's `res/raw/incy_assets_{a,b}.bin`, the vendor's MIT reference package, and a third-party decryptor. All three agree byte for byte, and the derived key's fingerprint is the one the vendor asserts in all four of its reference ports. `tests/incy_crypt.rs` pins both asset digests, the key and the fingerprint, and decrypts the vendor's pinned vector plus four generated payloads; `happ-key-extractor` decrypts the same fixture file, so the two implementations cannot drift apart unnoticed ([11](11-incy-url-obfuscation.md)).
 
 ## Live probes 2026-10-12
 

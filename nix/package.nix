@@ -6,13 +6,15 @@ _: {
     ...
   }: let
     # Cargo sources plus the data files crane's Cargo-only filter would drop: the embedded URL
-    # keyring and the README (both `include_str!`), and the fixtures the integration tests read.
+    # keyring and the Incy keymat (both `include_str!`), and the fixtures the integration tests
+    # read.
     src = pkgs.lib.cleanSourceWith {
       src = ../.;
       name = "source";
       filter = path: type:
         (craneLib.filterCargoSources path type)
         || (pkgs.lib.hasSuffix "/src/keys/url-keys.json" path)
+        || (pkgs.lib.hasSuffix "/src/keys/incy-keymat.json" path)
         || (path == toString ../README.md)
         || (pkgs.lib.hasInfix "/tests/fixtures" path);
     };
@@ -30,7 +32,7 @@ _: {
       // {
         inherit cargoArtifacts;
         meta = {
-          description = "Happ-compatible subscription handling: body-form detection, meta protocol, AES-128-GCM, crypt1..5, routing and deeplinks";
+          description = "Happ-compatible subscription handling: body-form detection, meta protocol, AES-128-GCM, crypt1..5, incy://crypt1, routing and deeplinks";
           homepage = "https://github.com/loss-and-quick/happ-sub";
           license = with pkgs.lib.licenses; [mit asl20];
         };

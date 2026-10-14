@@ -7,6 +7,8 @@
 //! * Subscription body decryption (AES-128-GCM with versioned key tables)
 //! * URL unhiding (`happ://crypt/` … `happ://crypt5/`) with embedded (`builtin-url-keys`) or
 //!   caller-supplied RSA keys
+//! * Incy's URL obfuscation (`incy://crypt1/`), AES-256-GCM under a key derived from the client's
+//!   keymat assets (`builtin-incy-keys`) or one the caller supplies
 //! * Routing profiles (`happ://routing/`) and deeplink action dispatch
 //! * The subscription request Happ sends: headers in wire order, timeout and retry (`request`)
 //! * Happ's device identity (`device`): the SSAID it sends as `X-HWID`
@@ -25,6 +27,8 @@ pub mod body_crypt;
 pub mod deeplink;
 #[cfg(feature = "device")]
 pub mod device;
+#[cfg(feature = "incy-crypt")]
+pub mod incy_crypt;
 pub mod keys;
 pub mod meta;
 pub mod release;
