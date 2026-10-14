@@ -41,10 +41,14 @@ builtin-url-keys = ["url-crypt"]
 incy-crypt = ["dep:aes-gcm", "dep:sha2"]
 # Embeds the two Incy keymat assets as `incy_crypt::builtin_key` (about 11 KB of key data).
 builtin-incy-keys = ["incy-crypt"]
+# Happ's subscription request: headers in wire order, timeout and retry.
+happ-request = []
+# The subscription request INCY sends: User-Agent and `x-` headers.
+incy-request = ["dep:sha2"]
 # Exposes `body_crypt::encrypt_with_table` for building test fixtures.
 test-vectors = ["body-crypt"]
 # Happ's SSAID (`X-HWID`) and User-Agent, with its embedded signing certificate.
-device = ["dep:hmac", "dep:sha2"]
+device = ["dep:hmac", "dep:sha2", "happ-request"]
 
 [package.metadata.docs.rs]
 all-features = true

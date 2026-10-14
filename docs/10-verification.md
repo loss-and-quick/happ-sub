@@ -189,5 +189,5 @@ Earlier drafts of this research made the claims below; each was checked and corr
 | Byte-exact export→import round trip per scheme | **UNKNOWN**; irrelevant for an importer |
 | URL private keys extracted by this research's own pipeline | Not done; the third-party set is pinned by commit and SHA-256 |
 | Body key rotation after 4.7.1 | **UNKNOWN**; re-run the extractor on new releases |
-| `X-Device-OS` and User-Agent of Happ for Windows, Linux, macOS and iOS | **UNKNOWN**; `request::ClientOs` uses inferred strings for them |
+| `X-Device-OS` and User-Agent of Happ for Windows, Linux, macOS and iOS | **UNKNOWN**; `happ_request::ClientOs` uses inferred strings for them |
 | Effect of the HWID switches and the retry shapes on a device | **INFERRED** from the code; only the defaults and the retry count were observed |

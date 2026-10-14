@@ -11,12 +11,14 @@ A zero-I/O Rust library for importing Happ-compatible (`su.happ.proxyutility`) s
 | `builtin-url-keys` | no | Enables `url-crypt` and embeds the RSA keys as `url_crypt::builtin_keyring()` (about 125 KB) |
 | `incy-crypt` | no | `incy://crypt1/` decryption and link generation under a 32-byte key the caller supplies (`aes-gcm`, `sha2`) |
 | `builtin-incy-keys` | no | Enables `incy-crypt` and embeds the Incy keymat assets as `incy_crypt::builtin_key()` (about 11 KB) |
+| `happ-request` | no | `happ_request::build`: the request Happ sends — headers in wire order, `User-Agent`, timeout, retry, cookie jar |
+| `incy-request` | no | `incy_request::build_request`: the request Incy sends — its `User-Agent`, `x-` headers and device id (`sha2`) |
 | `test-vectors` | no | Enables `body-crypt` and exposes `body_crypt::encrypt_with_table`, for producing encrypted samples in tests |
-| `device` | no | `device::ssaid`: the SSAID Happ sends as `X-HWID`, from a caller-supplied user key and the embedded Happ signing certificate (`hmac`, `sha2`) |
+| `device` | no | `device::ssaid`: the SSAID Happ sends as `X-HWID`, from a caller-supplied user key and the embedded Happ signing certificate (`hmac`, `sha2`, `happ-request`) |
 
 ## Scope
 
-In scope: body form detection, the meta directive protocol, body decryption, URL decryption, routing profiles, deeplinks and the request headers Happ sends.
+In scope: body form detection, the meta directive protocol, body decryption, URL decryption, routing profiles, deeplinks and the request headers Happ sends. With `incy-crypt` and `incy-request`, the same two jobs for the INCY client, whose formats are a subset of Happ's plus its own URL obfuscation ([docs/12](docs/12-incy-client.md)).
 
 Not in scope:
 
@@ -92,12 +94,12 @@ fn refresh(
 
 ## Building the request
 
-`request::build` returns the request Happ would send: its headers in Happ's order and spelling, the per-attempt timeout, the retry rules and whether to keep a cookie jar. The caller supplies the device facts, the HWID, the user's per-subscription overrides, the current time, the subscription's merged metadata and the user's consent to `TrustBoundary` keys; the crate applies Happ's precedence ([docs/07](docs/07-fetch-and-update.md#request)).
+`happ_request::build` returns the request Happ would send: its headers in Happ's order and spelling, the per-attempt timeout, the retry rules and whether to keep a cookie jar. The caller supplies the device facts, the HWID, the user's per-subscription overrides, the current time, the subscription's merged metadata and the user's consent to `TrustBoundary` keys; the crate applies Happ's precedence ([docs/07](docs/07-fetch-and-update.md#request)). It lives behind the `happ-request` feature, so this example is compiled by the feature-gated doctest on `happ_request` rather than here.
 
-```rust
+```rust,ignore
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use happ_sub::request::{self, ClientOs, DeviceInfo, Identity, RetryCause};
+use happ_sub::happ_request::{self, ClientOs, DeviceInfo, Identity, RetryCause};
 use happ_sub::MetaMap;
 
 let identity = Identity {
@@ -116,7 +118,7 @@ let stored: Option<&MetaMap> = None; // the merged meta from the last fetch; non
 let accepted = ["change-user-agent"]; // TrustBoundary keys the user accepted
 let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
 
-let profile = request::build(&identity, stored, now, |key| accepted.contains(&key));
+let profile = happ_request::build(&identity, stored, now, |key| accepted.contains(&key));
 assert_eq!(profile.headers[0], ("Connection".into(), "close".into()));
 assert_eq!(profile.headers[1].0, "User-agent");
 assert!(profile.headers[1].1.starts_with(&format!("Happ/{}/Android/", happ_sub::HAPP_VERSION)));
@@ -159,9 +161,9 @@ The crate follows Happ 4.7.1 as observed on a device, except where Happ loses da
 | URL fragment segment without `=` (`#?a=1&b`) | Rejects the whole import | Fragment directives ignored, `Warning::InvalidFragment` |
 | `sub-info-text: 0` on an import without a fragment | Stored as the text `0` | Dropped, as on every later merge |
 
-`request::build` follows Happ's request with these differences ([docs/07](docs/07-fetch-and-update.md#device-identifiers)):
+`happ_request::build` follows Happ's request with these differences ([docs/07](docs/07-fetch-and-update.md#device-identifiers)):
 
-| Input | Happ 4.7.1 | `request::build` |
+| Input | Happ 4.7.1 | `happ_request::build` |
 |---|---|---|
 | `subscription-always-hwid-enable`, `subscription-hwid-in-cookie-enable`, `manual-block-user-agent` | Lock the user's switch or User-Agent field | The user's override wins; the lock is reported in `RequestProfile::locks` |
 | `subscription-send-hwid-enabled`, `subscription-always-hwid-enable`, `change-user-agent` dropped by a later full refresh | Their effect stays in the subscription's settings | The effect ends with the key; persist it as a user override to keep it |
@@ -191,6 +193,7 @@ The wire formats are specified in [docs/](docs/README.md), with the evidence for
 9. [Implementation guide](docs/09-implementation-guide.md)
 10. [Verification ledger](docs/10-verification.md)
 11. [Incy URL obfuscation](docs/11-incy-url-obfuscation.md)
+12. [The Incy client](docs/12-incy-client.md)
 
 ## Development
 

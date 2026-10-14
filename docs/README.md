@@ -15,6 +15,7 @@ A specification of the wire formats used by Happ-compatible (`su.happ.proxyutili
 | [09 Implementation guide](09-implementation-guide.md) | Import pipeline, crate/caller split, policy, fixtures |
 | [10 Verification ledger](10-verification.md) | Evidence per claim, the five key confirmations, `crypt5` round trips, the `incy://crypt1/` derivation, the 2026-10-12 live provider and on-device probes with their methods, corrections to earlier drafts, open items |
 | [11 Incy URL obfuscation](11-incy-url-obfuscation.md) | `incy://crypt1/`: AES-256-GCM wire layout, sorted-JSON plaintext, the keymat key derivation, the client's leniency, link generation |
+| [12 The Incy client](12-incy-client.md) | The request Incy sends: header set and order, `User-Agent`, its `android_id`-based device id, and the body and meta surface it shares with Happ |
 
 Redacted live samples are under [`tests/fixtures/`](../tests/fixtures/). The body key table is in [`src/keys/gen1.rs`](../src/keys/gen1.rs), the URL RSA keys are in [`src/keys/url-keys.json`](../src/keys/url-keys.json) and the Incy keymat is in [`src/keys/incy-keymat.json`](../src/keys/incy-keymat.json).
 

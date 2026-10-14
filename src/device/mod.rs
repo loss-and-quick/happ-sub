@@ -5,8 +5,8 @@ use sha2::Sha256;
 
 mod signers;
 
+pub use crate::happ_request::user_agent;
 pub use crate::release::{HAPP_UA_BUILD_STAMP, HAPP_UA_SUFFIX, HAPP_VERSION, HAPP_VERSION_CODE};
-pub use crate::request::user_agent;
 pub use signers::HAPP_SIGNERS;
 
 /// Happ's Android package name.

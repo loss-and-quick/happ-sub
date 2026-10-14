@@ -4,6 +4,34 @@
 //! the subscription's merged metadata and its consent to `TrustBoundary` keys; [`build`] applies
 //! Happ's precedence between them. `Host`, `Accept-Encoding` and the `Authorization` header Happ
 //! derives from URL userinfo are left to the HTTP client.
+//!
+//! ```
+//! use std::time::{SystemTime, UNIX_EPOCH};
+//!
+//! use happ_sub::happ_request::{self, ClientOs, DeviceInfo, Identity};
+//! use happ_sub::MetaMap;
+//!
+//! let identity = Identity {
+//!     // The SSAID (`device::ssaid`) or any identifier the client chooses; `None` sends no X-HWID.
+//!     hwid: Some("0123456789abcdef".into()),
+//!     device: DeviceInfo {
+//!         os: ClientOs::Android,
+//!         os_version: "16".into(),
+//!         model: "Pixel 9".into(),
+//!         locale: "en-US".into(),
+//!     },
+//!     ..Identity::default()
+//! };
+//! let stored: Option<&MetaMap> = None; // the merged meta from the last fetch; none on import
+//! let accepted = ["change-user-agent"]; // TrustBoundary keys the user accepted
+//! let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+//!
+//! let profile = happ_request::build(&identity, stored, now, |key| accepted.contains(&key));
+//! assert_eq!(profile.headers[0], ("Connection".into(), "close".into()));
+//! assert_eq!(profile.headers[1].0, "User-agent");
+//! assert!(profile.headers[1].1.starts_with(&format!("Happ/{}/Android/", happ_sub::HAPP_VERSION)));
+//! assert_eq!(profile.timeout.as_secs(), 7);
+//! ```
 
 use std::time::Duration;
 
