@@ -61,6 +61,7 @@
 //!     os_version: "16",
 //!     locale: "ru_RU",
 //!     language_tag: "ru-RU",
+//!     ..Default::default()
 //! };
 //! let options = RequestOptions {
 //!     app_version: "3.7.0",
@@ -81,6 +82,8 @@
 //! ```
 
 use sha2::{Digest, Sha256};
+
+use crate::release::{INCY_DESKTOP_VERSION, INCY_VERSION};
 
 /// Value of the `x-client` header.
 pub const CLIENT: &str = "INCY";
@@ -129,6 +132,15 @@ pub struct DeviceFacts<'a> {
     pub locale: &'a str,
     /// `Locale.getDefault().toLanguageTag()`, for example `en-US`.
     pub language_tag: &'a str,
+    /// Operating system name on desktop, for example `"Linux"` or `"Windows"`. When empty or
+    /// `"Android"`, mobile Android rules apply.
+    pub os: &'a str,
+    /// Machine hostname on desktop (from `HOSTNAME` / `/etc/hostname` / `COMPUTERNAME`).
+    pub hostname: &'a str,
+    /// Desktop username (from `System.getProperty("user.name")`).
+    pub username: &'a str,
+    /// Architecture on desktop (from `System.getProperty("os.arch")`, e.g. `"x86_64"` or `"amd64"`).
+    pub arch: &'a str,
 }
 
 impl Default for DeviceFacts<'_> {
@@ -145,6 +157,10 @@ impl Default for DeviceFacts<'_> {
             os_version: "",
             locale: "en_US",
             language_tag: "en-US",
+            os: "",
+            hostname: "",
+            username: "",
+            arch: "",
         }
     }
 }
@@ -173,19 +189,55 @@ pub struct IncyRequest {
     pub headers: Vec<(String, String)>,
 }
 
-/// Build the default User-Agent: `INCY/<versionName>/android Dalvik/<vm version>`.
-pub fn user_agent(app_version: &str, vm_version: Option<&str>) -> String {
+/// Build the default User-Agent for an OS: `INCY/<versionName>/<os.toLowerCase()> Dalvik/<vm version>`.
+pub fn user_agent_for_os(os: &str, app_version: &str, vm_version: Option<&str>) -> String {
     let vm = vm_version
         .filter(|v| !v.is_empty())
         .unwrap_or(DEFAULT_VM_VERSION);
-    format!("INCY/{app_version}/android Dalvik/{vm}")
+    let os_str = if os.is_empty() { "android" } else { os };
+    format!(
+        "INCY/{app_version}/{} Dalvik/{vm}",
+        os_str.to_ascii_lowercase()
+    )
+}
+
+/// Build the default User-Agent: `INCY/<versionName>/android Dalvik/<vm version>`.
+pub fn user_agent(app_version: &str, vm_version: Option<&str>) -> String {
+    user_agent_for_os("android", app_version, vm_version)
 }
 
 /// The User-Agent to send: the caller's override when it is non-empty, the default otherwise.
 pub fn resolve_user_agent(options: &RequestOptions<'_>) -> String {
+    let app_version = if options.app_version.is_empty() {
+        INCY_VERSION
+    } else {
+        options.app_version
+    };
     match options.user_agent {
         Some(override_ua) if !override_ua.is_empty() => override_ua.to_string(),
-        _ => user_agent(options.app_version, options.vm_version),
+        _ => user_agent(app_version, options.vm_version),
+    }
+}
+
+/// The User-Agent to send for a specific device: the caller's override when non-empty, else the default.
+pub fn resolve_user_agent_for_device(
+    options: &RequestOptions<'_>,
+    facts: &DeviceFacts<'_>,
+) -> String {
+    let is_desktop = !facts.os.is_empty() && !facts.os.eq_ignore_ascii_case("android");
+    let default_app_version = if is_desktop {
+        INCY_DESKTOP_VERSION
+    } else {
+        INCY_VERSION
+    };
+    let app_version = if options.app_version.is_empty() {
+        default_app_version
+    } else {
+        options.app_version
+    };
+    match options.user_agent {
+        Some(override_ua) if !override_ua.is_empty() => override_ua.to_string(),
+        _ => user_agent_for_os(facts.os, app_version, options.vm_version),
     }
 }
 
@@ -196,6 +248,9 @@ pub fn resolve_user_agent(options: &RequestOptions<'_>) -> String {
 /// generates when `android_id` is missing, is the emulator sentinel, or has too few non-zero
 /// characters — a random UUID without dashes.
 ///
+/// When `facts.os` is non-empty and not `"Android"`, desktop derivation rules apply
+/// (`llc.itdev.incy.util.DeviceIdentifier`).
+///
 /// **VERIFIED** on a real device (Android 16); the values are not published, so the tests below pin
 /// the algorithm on synthetic seeds.
 pub fn derive_hwid(stored: Option<&str>, facts: &DeviceFacts<'_>, fallback_seed: &str) -> String {
@@ -205,9 +260,88 @@ pub fn derive_hwid(stored: Option<&str>, facts: &DeviceFacts<'_>, fallback_seed:
         }
     }
 
+    if !facts.os.is_empty() && !facts.os.eq_ignore_ascii_case("android") {
+        return derive_desktop_hwid(stored, facts, fallback_seed);
+    }
+
     let seed = match usable_seed(stored) {
         Some(seed) => seed,
         None => seed_from_device(facts, fallback_seed),
+    };
+
+    let digest = hex(
+        &Sha256::digest(format!("{HWID_PREFIX}{seed}").as_bytes()),
+        true,
+    );
+    group_uuid(&digest[..HWID_HEX_LEN])
+}
+
+/// Derives Incy's desktop device identifier seed from desktop facts.
+///
+/// Joins non-empty `[machine_id, hostname, os, arch, username]` with `"|"` and returns its lower-case SHA-256 digest.
+/// If all fields are empty, returns `fallback_seed`.
+pub fn desktop_seed(
+    machine_id: Option<&str>,
+    hostname: Option<&str>,
+    os: Option<&str>,
+    arch: Option<&str>,
+    username: Option<&str>,
+    fallback_seed: &str,
+) -> String {
+    let mut parts = Vec::new();
+    if let Some(id) = machine_id.map(str::trim).filter(|s| !s.is_empty()) {
+        parts.push(id);
+    }
+    if let Some(h) = hostname.map(str::trim).filter(|s| !s.is_empty()) {
+        parts.push(h);
+    }
+    if let Some(o) = os.map(str::trim).filter(|s| !s.is_empty()) {
+        parts.push(o);
+    }
+    if let Some(a) = arch.map(str::trim).filter(|s| !s.is_empty()) {
+        parts.push(a);
+    }
+    if let Some(u) = username.map(str::trim).filter(|s| !s.is_empty()) {
+        parts.push(u);
+    }
+
+    if parts.is_empty() {
+        return fallback_seed.to_string();
+    }
+
+    let joined = parts.join("|");
+    hex(&Sha256::digest(joined.as_bytes()), false)
+}
+
+/// Derives Incy's desktop HWID.
+///
+/// Follows desktop Incy's `DeviceIdentifier.kt`:
+/// 1. If `stored` is 36 chars with hyphens, returns it.
+/// 2. If `stored` is non-empty, hashes `SHA-256("incy_hwid_" + seed)`.
+/// 3. Otherwise computes `desktop_seed(...)` and hashes `SHA-256("incy_hwid_" + seed)`.
+///
+/// The result is grouped as `8-4-4-4-12` in upper-case hex.
+pub fn derive_desktop_hwid(
+    stored: Option<&str>,
+    facts: &DeviceFacts<'_>,
+    fallback_seed: &str,
+) -> String {
+    if let Some(id) = stored {
+        if id.len() == 36 && id.contains('-') {
+            return id.to_string();
+        }
+    }
+
+    let seed = match usable_seed(stored) {
+        Some(seed) => seed,
+        None => desktop_seed(
+            facts.android_id,
+            Some(facts.hostname).filter(|s| !s.is_empty()),
+            Some(facts.os).filter(|s| !s.is_empty()),
+            Some(facts.arch).filter(|s| !s.is_empty()),
+            Some(facts.username).filter(|s| !s.is_empty()),
+            fallback_seed,
+        ),
     };
 
     let digest = hex(
@@ -260,31 +394,79 @@ pub fn build_headers(
     facts: &DeviceFacts<'_>,
     hwid: Option<&str>,
 ) -> Vec<(String, String)> {
-    let mut headers = vec![
-        ("User-Agent".to_string(), resolve_user_agent(options)),
-        ("Accept".to_string(), "*/*".to_string()),
-        (
-            "Accept-Language".to_string(),
-            facts.language_tag.to_string(),
-        ),
-    ];
+    let is_desktop = !facts.os.is_empty() && !facts.os.eq_ignore_ascii_case("android");
+    let ua = resolve_user_agent_for_device(options, facts);
 
-    if let Some(hwid) = hwid {
-        headers.push(("x-hwid".to_string(), hwid.to_string()));
-        headers.push(("x-device-os".to_string(), "Android".to_string()));
-        headers.push(("x-ver-os".to_string(), facts.os_version.to_string()));
-        headers.push((
-            "x-device-model".to_string(),
-            format!("{} {}", facts.manufacturer, facts.model)
-                .trim()
-                .to_string(),
-        ));
+    let default_app_version = if is_desktop {
+        INCY_DESKTOP_VERSION
+    } else {
+        INCY_VERSION
+    };
+    let app_version = if options.app_version.is_empty() {
+        default_app_version
+    } else {
+        options.app_version
+    };
+
+    if is_desktop {
+        // Desktop Incy wire order from `SubscriptionService.kt`:
+        // User-Agent, Accept, Accept-Language, x-app-version, x-device-locale, x-client,
+        // followed by device headers when hwid is present.
+        let mut headers = vec![
+            ("User-Agent".to_string(), ua),
+            ("Accept".to_string(), "*/*".to_string()),
+            (
+                "Accept-Language".to_string(),
+                facts.language_tag.to_string(),
+            ),
+            ("x-app-version".to_string(), app_version.to_string()),
+            ("x-device-locale".to_string(), facts.locale.to_string()),
+            ("x-client".to_string(), CLIENT.to_string()),
+        ];
+
+        if let Some(hwid) = hwid {
+            headers.push(("x-hwid".to_string(), hwid.to_string()));
+            headers.push(("x-device-os".to_string(), facts.os.to_string()));
+            headers.push(("x-ver-os".to_string(), facts.os_version.to_string()));
+            let model = if !facts.model.is_empty() {
+                facts.model.to_string()
+            } else if !facts.arch.is_empty() {
+                format!("{} {}", facts.os, facts.arch)
+            } else {
+                facts.os.to_string()
+            };
+            headers.push(("x-device-model".to_string(), model));
+        }
+
+        headers
+    } else {
+        // Mobile Android wire order:
+        let mut headers = vec![
+            ("User-Agent".to_string(), ua),
+            ("Accept".to_string(), "*/*".to_string()),
+            (
+                "Accept-Language".to_string(),
+                facts.language_tag.to_string(),
+            ),
+        ];
+
+        if let Some(hwid) = hwid {
+            headers.push(("x-hwid".to_string(), hwid.to_string()));
+            headers.push(("x-device-os".to_string(), "Android".to_string()));
+            headers.push(("x-ver-os".to_string(), facts.os_version.to_string()));
+            headers.push((
+                "x-device-model".to_string(),
+                format!("{} {}", facts.manufacturer, facts.model)
+                    .trim()
+                    .to_string(),
+            ));
+        }
+
+        headers.push(("x-app-version".to_string(), app_version.to_string()));
+        headers.push(("x-device-locale".to_string(), facts.locale.to_string()));
+        headers.push(("x-client".to_string(), CLIENT.to_string()));
+        headers
     }
-
-    headers.push(("x-app-version".to_string(), options.app_version.to_string()));
-    headers.push(("x-device-locale".to_string(), facts.locale.to_string()));
-    headers.push(("x-client".to_string(), CLIENT.to_string()));
-    headers
 }
 
 /// Build the whole request for one subscription URL.
@@ -296,7 +478,7 @@ pub fn build_request(
 ) -> IncyRequest {
     IncyRequest {
         url: url.to_string(),
-        user_agent: resolve_user_agent(options),
+        user_agent: resolve_user_agent_for_device(options, facts),
         headers: build_headers(options, facts, hwid),
     }
 }
@@ -348,6 +530,7 @@ mod tests {
             os_version: "16",
             locale: "ru_RU",
             language_tag: "ru-RU",
+            ..Default::default()
         }
     }
 
@@ -554,5 +737,95 @@ mod tests {
             derive_hwid(None, &facts(), "unused"),
             hwid_for_seed(&device_seed)
         );
+    }
+
+    #[test]
+    fn desktop_linux_user_agent() {
+        assert_eq!(
+            user_agent_for_os("Linux", "3.8.10", Some("2.1.0")),
+            "INCY/3.8.10/linux Dalvik/2.1.0"
+        );
+        assert_eq!(
+            user_agent_for_os("Windows", "3.8.10", None),
+            "INCY/3.8.10/windows Dalvik/2.1.0"
+        );
+        assert_eq!(
+            user_agent_for_os("Darwin", "3.8.10", Some("21.0.6")),
+            "INCY/3.8.10/darwin Dalvik/21.0.6"
+        );
+    }
+
+    #[test]
+    fn desktop_headers_are_emitted_in_desktop_order() {
+        let mut d_facts = facts();
+        d_facts.os = "Linux";
+        d_facts.os_version = "6.12.18";
+        d_facts.arch = "x86_64";
+        d_facts.model = "";
+
+        let mut opts = options();
+        opts.app_version = ""; // will pick INCY_DESKTOP_VERSION
+
+        let request = build_request(
+            "https://example.com/sub",
+            &opts,
+            &d_facts,
+            Some("HWID-DESKTOP"),
+        );
+        let names: Vec<&str> = request
+            .headers
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect();
+
+        assert_eq!(
+            names,
+            [
+                "User-Agent",
+                "Accept",
+                "Accept-Language",
+                "x-app-version",
+                "x-device-locale",
+                "x-client",
+                "x-hwid",
+                "x-device-os",
+                "x-ver-os",
+                "x-device-model",
+            ]
+        );
+        assert_eq!(request.headers[0].1, "INCY/3.8.10/linux Dalvik/2.1.0");
+        assert_eq!(request.headers[1].1, "*/*");
+        assert_eq!(request.headers[2].1, "ru-RU");
+        assert_eq!(request.headers[3].1, "3.8.10");
+        assert_eq!(request.headers[4].1, "ru_RU");
+        assert_eq!(request.headers[5].1, CLIENT);
+        assert_eq!(request.headers[6].1, "HWID-DESKTOP");
+        assert_eq!(request.headers[7].1, "Linux");
+        assert_eq!(request.headers[8].1, "6.12.18");
+        assert_eq!(request.headers[9].1, "Linux x86_64");
+    }
+
+    #[test]
+    fn desktop_hwid_derivation_deterministic() {
+        let mut d_facts = facts();
+        d_facts.os = "Linux";
+        d_facts.android_id = Some("test-machine-id");
+        d_facts.hostname = "testhost";
+        d_facts.arch = "x86_64";
+        d_facts.username = "testuser";
+
+        let id = derive_hwid(None, &d_facts, "fallback");
+        assert_eq!(id.len(), 36);
+        assert!(id
+            .chars()
+            .all(|c| c == '-' || c.is_ascii_uppercase() || c.is_ascii_digit()));
+        assert_eq!(&id[8..9], "-");
+        assert_eq!(&id[13..14], "-");
+        assert_eq!(&id[18..19], "-");
+        assert_eq!(&id[23..24], "-");
+
+        // Stored value with hyphens returned unchanged:
+        let stored = "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE";
+        assert_eq!(derive_hwid(Some(stored), &d_facts, "fallback"), stored);
     }
 }
