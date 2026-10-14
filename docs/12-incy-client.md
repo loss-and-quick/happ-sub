@@ -80,9 +80,37 @@ A body directive that Incy does not know is passed through as content, so a prov
 and Happ directives in one response; the routing directives are deliberately schemeless
 (`://routing/onadd/{base64}`) for that reason.
 
+## Where the id is stored
+
+Incy keeps both the id and its seed in **Jetpack `EncryptedSharedPreferences`** (`sg/c0.java`):
+file `incy_secure8storage` in the app's `shared_prefs`, keys `hwid` (the id) and `device_id` (the
+seed), with a `MasterKey` of AES256-GCM in the Android keystore, AES256-SIV key encryption and
+AES256-GCM value encryption. The same file holds `db_passphrase`, the SQLCipher passphrase of the
+app database. The file and key names are obfuscated strings in the client
+(`sg/b0.java`: `{35,21,…}` XOR a 16-byte table), decoded to the values above.
+
+Consequences for a third-party client: reading the value off-device needs the keystore-wrapped
+master key, so on a rooted device at runtime or through instrumentation, not from a backup. The
+alternative is to capture one live request, or to seed from a real `android_id` the device already
+exposes — neither of which the signing certificates help with, see below.
+
+## Signing certificates
+
+`incy_signers` carries `INCY_PACKAGE` (`llc.itdev.incy`) and `INCY_SIGNERS`, generated from the
+release APK the same way `device::HAPP_SIGNERS` is: the highest verified scheme only, first
+certificate per signer. Incy 3.7.0 is **v3 only, one certificate**, DER 1420 bytes, SHA-256
+`e1430d81de511c72253a6a409910e609686f084e3944eab6f154999ac7128b13`. `INCY_VERSION` and
+`INCY_VERSION_CODE` sit in `release.rs` beside Happ's.
+
+They are **not** an input to `derive_hwid`. Incy seeds from `Settings.Secure.getString("android_id")`,
+which on Android 8+ is a value scoped to the app's signing key and derived from the device-wide
+`ANDROID_ID` — a different identifier from the AOSP SSAID that `device::ssaid` computes, and one
+that additionally needs the device-wide value. Knowing Incy's certificate therefore does not let a
+client reproduce the id; it identifies the app, which is what a client-side check needs.
+
 ## Verification
 
 `src/incy_request.rs` pins the header names, their order and the conditions under which the
-`x-hwid` block appears, the User-Agent formats and override precedence, and the shape of a derived
-id. Fidelity of the id itself is unproven — see the note above. The research project's
-`probes/incy/` keeps the decompiled excerpts this document was written from.
+`x-hwid` block appears, the User-Agent formats and override precedence, the `usable_android_id`
+rule and the shape of a derived id. Fidelity of the id itself is unproven — see the note above. The
+research project's `probes/incy/` keeps the decompiled excerpts this document was written from.

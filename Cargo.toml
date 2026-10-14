@@ -45,6 +45,8 @@ builtin-incy-keys = ["incy-crypt"]
 happ-request = []
 # The subscription request INCY sends: User-Agent and `x-` headers.
 incy-request = ["dep:sha2"]
+# Incy's package name and signing certificates.
+incy-signers = []
 # Exposes `body_crypt::encrypt_with_table` for building test fixtures.
 test-vectors = ["body-crypt"]
 # Happ's SSAID (`X-HWID`) and User-Agent, with its embedded signing certificate.

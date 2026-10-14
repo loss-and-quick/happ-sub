@@ -10,6 +10,7 @@
 //! * Incy's URL obfuscation (`incy://crypt1/`), AES-256-GCM under a key derived from the client's
 //!   keymat assets (`builtin-incy-keys`) or one the caller supplies
 //! * The request Incy sends (`incy-request`): its User-Agent, `x-` headers and device id
+//! * Incy's package name and signing certificates (`incy-signers`)
 //! * Routing profiles (`happ://routing/`) and deeplink action dispatch
 //! * The subscription request Happ sends: headers in wire order, timeout and retry (`happ_request`)
 //! * Happ's device identity (`device`): the SSAID it sends as `X-HWID`
@@ -34,16 +35,19 @@ pub mod happ_request;
 pub mod incy_crypt;
 #[cfg(feature = "incy-request")]
 pub mod incy_request;
+#[cfg(feature = "incy-signers")]
+pub mod incy_signers;
 pub mod keys;
 pub mod meta;
 pub mod release;
 pub mod routing;
+pub mod signers;
 #[cfg(feature = "url-crypt")]
 pub mod url_crypt;
 
 pub use body::Payload;
 pub use meta::{Limits, MergeMode, MetaDelta, MetaMap, ProposedChange, RiskClass, UserInfo};
-pub use release::{HAPP_VERSION, HAPP_VERSION_CODE};
+pub use release::{HAPP_VERSION, HAPP_VERSION_CODE, INCY_VERSION, INCY_VERSION_CODE};
 pub use routing::{RoutingAction, RoutingProfile};
 
 #[cfg(doctest)]

@@ -209,18 +209,24 @@ fn usable_seed(stored: Option<&str>) -> Option<String> {
     stored.filter(|s| !s.is_empty()).map(str::to_string)
 }
 
+/// Whether Incy would accept `id` as an `android_id` seed.
+///
+/// The client rejects an empty value, the constant every Android emulator reports, and a value
+/// with fewer than four non-`0` characters, falling back to a random seed in all three cases.
+/// Exposed so a client can report honestly where its device id came from: derived from the
+/// platform id, or randomised.
+pub fn usable_android_id(id: &str) -> bool {
+    !id.is_empty()
+        && id != EMULATOR_ANDROID_ID
+        && id.chars().filter(|c| *c != '0').count() >= MIN_NON_ZERO_CHARS
+}
+
 /// The client's one-time seed: the hash of `android_id` and the build fingerprints, or a random
 /// UUID when `android_id` cannot be used.
 fn seed_from_device(facts: &DeviceFacts<'_>, fallback_seed: &str) -> String {
-    let Some(android_id) = facts.android_id else {
+    let Some(android_id) = facts.android_id.filter(|id| usable_android_id(id)) else {
         return fallback_seed.to_string();
     };
-    if android_id.is_empty() || android_id == EMULATOR_ANDROID_ID {
-        return fallback_seed.to_string();
-    }
-    if android_id.chars().filter(|c| *c != '0').count() < MIN_NON_ZERO_CHARS {
-        return fallback_seed.to_string();
-    }
 
     let material = [
         android_id,
@@ -482,19 +488,24 @@ mod tests {
         let fallback = "0f1e2d3c4b5a69788796a5b4c3d2e1f0";
         let expected = derive_hwid(Some(fallback), &facts(), fallback);
 
-        let mut facts = facts();
-        facts.android_id = None;
-        assert_eq!(derive_hwid(None, &facts, fallback), expected);
+        for id in [
+            None,
+            Some(EMULATOR_ANDROID_ID),
+            Some(""),
+            Some("0000"),
+            Some("0"),
+        ] {
+            let mut facts = facts();
+            facts.android_id = id;
+            assert_eq!(derive_hwid(None, &facts, fallback), expected, "{id:?}");
+        }
 
-        facts.android_id = Some(EMULATOR_ANDROID_ID);
-        assert_eq!(derive_hwid(None, &facts, fallback), expected);
-
-        facts.android_id = Some("");
-        assert_eq!(derive_hwid(None, &facts, fallback), expected);
-
-        // Fewer than four non-zero characters: the client distrusts the value.
-        facts.android_id = Some("0000");
-        assert_eq!(derive_hwid(None, &facts, fallback), expected);
+        assert!(usable_android_id("9774d56d682e549c8871f0e5a1b2c3d4"));
+        assert!(!usable_android_id(EMULATOR_ANDROID_ID));
+        assert!(!usable_android_id(""));
+        assert!(!usable_android_id("0000"));
+        assert!(!usable_android_id("0a0"));
+        assert!(usable_android_id("0a0b0c0d"));
     }
 
     #[test]
