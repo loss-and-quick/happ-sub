@@ -260,7 +260,11 @@ pub fn build(
         ("User-agent".to_string(), ua),
         (
             "X-Device-Locale".to_string(),
-            language(&identity.device.locale),
+            if is_linux {
+                header_value(&identity.device.locale)
+            } else {
+                language(&identity.device.locale)
+            },
         ),
     ];
     // `uj7.d`: the "send HWID" switch gates all four device headers, not only `X-HWID`.
@@ -701,7 +705,7 @@ mod tests {
             header(&p, "User-agent"),
             Some("Happ/4.5.4/Linux/2610141140685")
         );
-        assert_eq!(header(&p, "X-Device-Locale"), Some("ru"));
+        assert_eq!(header(&p, "X-Device-Locale"), Some("ru_RU.UTF-8"));
         assert_eq!(header(&p, "X-HWID"), Some("0123456789abcdef"));
         assert_eq!(header(&p, "X-Device-OS"), Some("Linux"));
         assert_eq!(header(&p, "X-Ver-OS"), Some("ubuntu_24.04"));
