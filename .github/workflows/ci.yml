@@ -38,6 +38,7 @@ jobs:
       - run: cargo clippy --all-targets --no-default-features -- -D warnings
       - run: cargo clippy --all-targets --no-default-features --features url-crypt -- -D warnings
       - run: cargo clippy --all-targets --no-default-features --features device -- -D warnings
+      - run: cargo clippy --all-targets --no-default-features --features happ-request -- -D warnings
       - run: cargo clippy --all-targets --no-default-features --features incy-crypt -- -D warnings
       - run: cargo clippy --all-targets --no-default-features --features incy-request,incy-signers -- -D warnings
 

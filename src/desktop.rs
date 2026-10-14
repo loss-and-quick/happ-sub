@@ -92,6 +92,44 @@ pub fn jvm_os_arch(arch: &str) -> &str {
     }
 }
 
+/// Checks whether a system hardware identifier is valid.
+///
+/// Observed in Happ desktop (`0x2f5920`), which trims whitespace and rejects strings that are
+/// empty or contain only `'0'` and `'-'` characters (such as all-zero UUIDs).
+pub fn is_valid_sys_hwid(s: &str) -> bool {
+    let trimmed = s.trim();
+    !trimmed.is_empty() && trimmed.bytes().any(|b| b != b'0' && b != b'-')
+}
+
+/// Returns true if an identifier string is a known dummy/bogus hardware serial or UUID.
+///
+/// Observed in Happ desktop (`0x3b48e0`), which filters out OEM placeholder strings, default
+/// sequences, and dummy serial numbers before generating the fallback identifier.
+pub fn is_bogus_machine_id(id: &str) -> bool {
+    let s = id.trim().to_ascii_lowercase();
+    matches!(
+        s.as_str(),
+        "" | "1234567890"
+            | "0123456789"
+            | "o.e.m"
+            | "o.e.m."
+            | "oem"
+            | "default string"
+            | "serial number"
+            | "none"
+            | "null"
+            | "chassis serial number"
+            | "system serial number"
+            | "to be filled by o.e.m."
+            | "to be filled by o.e.m"
+            | "not applicable"
+            | "na"
+            | "n/a"
+            | "system manufacturer"
+            | "system product name"
+    ) || !is_valid_sys_hwid(id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

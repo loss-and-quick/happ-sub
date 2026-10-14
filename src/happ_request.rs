@@ -123,11 +123,11 @@ pub fn desktop_device(facts: &DesktopFacts<'_>) -> DeviceInfo {
     }
 }
 
-/// Happ desktop HWID rule: returns `Some(machine_id)` when valid per [`crate::device::is_valid_sys_hwid`],
+/// Happ desktop HWID rule: returns `Some(machine_id)` when valid per [`crate::desktop::is_valid_sys_hwid`],
 /// or `None` if absent or bogus (signaling the caller to use a stored random fallback).
 pub fn desktop_hwid(machine_id: Option<&str>) -> Option<String> {
     let id = machine_id?.trim();
-    if crate::device::is_valid_sys_hwid(id) {
+    if crate::desktop::is_valid_sys_hwid(id) {
         Some(id.to_string())
     } else {
         None

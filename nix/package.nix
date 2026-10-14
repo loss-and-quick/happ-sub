@@ -68,6 +68,12 @@ _: {
           inherit cargoArtifacts;
           cargoTestExtraArgs = "--all-features";
         });
+
+      test-happ-request = craneLib.cargoTest (commonArgs
+        // {
+          inherit cargoArtifacts;
+          cargoTestExtraArgs = "--no-default-features --features happ-request";
+        });
     };
   };
 }

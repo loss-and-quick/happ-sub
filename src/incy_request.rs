@@ -397,7 +397,7 @@ pub fn desktop_facts<'a>(facts: &'a DesktopFacts<'a>) -> DeviceFacts<'a> {
     let locale = crate::desktop::qt_locale_subslice(facts.posix_locale);
     DeviceFacts {
         android_id: facts.machine_id,
-        manufacturer: facts.os,
+        manufacturer: "",
         model: "",
         brand: "",
         device: "",
@@ -469,13 +469,15 @@ pub fn build_headers(
         headers
     } else {
         // Mobile Android wire order:
+        let lang_tag = if !facts.language_tag.is_empty() {
+            facts.language_tag.to_string()
+        } else {
+            facts.locale.replace('_', "-")
+        };
         let mut headers = vec![
             ("User-Agent".to_string(), ua),
             ("Accept".to_string(), "*/*".to_string()),
-            (
-                "Accept-Language".to_string(),
-                facts.language_tag.to_string(),
-            ),
+            ("Accept-Language".to_string(), lang_tag),
         ];
 
         if let Some(hwid) = hwid {

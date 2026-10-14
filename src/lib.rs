@@ -47,7 +47,7 @@ pub mod signers;
 pub mod url_crypt;
 
 pub use body::Payload;
-pub use desktop::DesktopFacts;
+pub use desktop::{is_bogus_machine_id, is_valid_sys_hwid, DesktopFacts};
 pub use meta::{Limits, MergeMode, MetaDelta, MetaMap, ProposedChange, RiskClass, UserInfo};
 pub use release::{
     HAPP_API_VERSION, HAPP_DESKTOP_BUNDLE_ID_LINUX, HAPP_DESKTOP_UA_BUILD_STAMP,

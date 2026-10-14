@@ -5,6 +5,7 @@ use sha2::Sha256;
 
 mod signers;
 
+pub use crate::desktop::{is_bogus_machine_id, is_valid_sys_hwid};
 pub use crate::happ_request::{user_agent, user_agent_for_os};
 pub use crate::release::{
     HAPP_API_VERSION, HAPP_DESKTOP_BUNDLE_ID_LINUX, HAPP_DESKTOP_UA_BUILD_STAMP,
@@ -23,38 +24,6 @@ pub const HAPP_PACKAGE: &str = "su.happ.proxyutility";
 pub const HAPP_DESKTOP_HWID_NAMESPACE: [u8; 16] = [
     0xcc, 0xd6, 0xac, 0x7d, 0xac, 0x5f, 0x41, 0x06, 0xbb, 0x40, 0x06, 0x64, 0x48, 0xb4, 0x9e, 0x90,
 ];
-
-/// Checks whether a system hardware identifier is valid.
-///
-/// Observed in Happ desktop (`0x2f5920`), which trims whitespace and rejects strings that are
-/// empty or contain only `'0'` and `'-'` characters (such as all-zero UUIDs).
-pub fn is_valid_sys_hwid(s: &str) -> bool {
-    let trimmed = s.trim();
-    !trimmed.is_empty() && trimmed.bytes().any(|b| b != b'0' && b != b'-')
-}
-
-/// Returns true if an identifier string is a known dummy/bogus hardware serial or UUID.
-///
-/// Observed in Happ desktop (`0x3b48e0`), which filters out OEM placeholder strings, default
-/// sequences, and dummy serial numbers before generating the fallback identifier.
-pub fn is_bogus_machine_id(id: &str) -> bool {
-    let s = id.trim().to_ascii_lowercase();
-    matches!(
-        s.as_str(),
-        "" | "1234567890"
-            | "0123456789"
-            | "o.e.m"
-            | "o.e.m."
-            | "oem"
-            | "default string"
-            | "serial number"
-            | "not specified"
-            | "not applicable"
-            | "none"
-            | "null"
-            | "00020003000400050006000700080009"
-    )
-}
 
 /// Derives a UUIDv5 fallback hardware identifier from a sequence of machine identifier strings.
 ///
