@@ -1,17 +1,18 @@
 # The Incy client
 
-INCY (`llc.itdev.incy`, Android 3.7.0 / versionCode 370) is a separate client, not a Happ fork.
+INCY (`llc.itdev.incy`, Android 3.7.0 / versionCode 370, Desktop 3.8.10) is a separate client, not a Happ fork.
 Its subscription body is a subset of Happ's, its URL obfuscation is its own
 ([11](11-incy-url-obfuscation.md)), and its request profile differs enough to deserve its own
 module: `incy_crypt` for the deeplink, `incy_request` for the fetch.
 
-Everything below is **VERIFIED** against the decompiled 3.7.0 APK unless marked otherwise. Class
-names are R8 output and are cited by shape.
+Everything below is **VERIFIED** against the decompiled 3.7.0 APK and desktop 3.8.10 JAR (`incy-linux-x64-portable.zip`)
+unless marked otherwise. Class names in Android are R8 output; Desktop classes are Compose Multiplatform Kotlin bytecode.
 
 ## Request headers
 
-`incy_request::build_request` returns the header list in the order the client adds them
-(`ag/z.java:67-85`):
+`incy_request::build_request` returns the header list in the order the client adds them.
+
+### Android wire order (`ag/z.java:67-85`)
 
 | Header | Value | When |
 |---|---|---|
@@ -25,6 +26,21 @@ names are R8 output and are cited by shape.
 | `x-app-version` | `versionName` | always |
 | `x-device-locale` | `Locale.getDefault().toString()` | always |
 | `x-client` | `INCY` | always |
+
+### Desktop wire order (`llc.itdev.incy.data.b.f$e` / `SubscriptionService.kt`)
+
+| Header | Value | When |
+|---|---|---|
+| `User-Agent` | `INCY/<versionName>/<os.name.toLowerCase()> Dalvik/<java.vm.version>` | always |
+| `Accept` | `*/*` | always |
+| `Accept-Language` | `Locale.getDefault().toLanguageTag()` | always |
+| `x-app-version` | `versionName` | always |
+| `x-device-locale` | `Locale.getDefault().toString()` | always |
+| `x-client` | `INCY` | always |
+| `x-hwid` | 36-character uppercase UUID | only when sendHWID is enabled |
+| `x-device-os` | `System.getProperty("os.name")` (e.g. `Linux`) | only when sendHWID is enabled |
+| `x-ver-os` | `System.getProperty("os.version")` | only when sendHWID is enabled |
+| `x-device-model` | `<os.name> <os.arch>` (e.g. `Linux amd64` / `Linux x86_64`) | only when sendHWID is enabled |
 
 Two differences from Happ that matter to a server:
 
@@ -58,6 +74,17 @@ against the same 16-byte table it uses for the crypt1 salt (`sg/e.java:114-117`)
 `21^123='n'`, `77^46='c'`, `36^93='y'`, `64^31='_'`, `11^99='h'`, `63^72='w'`, `94^55='i'`,
 `8^108='d'`, `70^25='_'`. The two hex cases are not a typo: the seed is formatted `%02x` and the id
 `%02X`.
+
+### Desktop device id (`llc.itdev.incy.c.c` / `DeviceIdentifier.kt`)
+
+On desktop platforms (Linux, Windows, macOS), `config/hwid` is read. If absent, `config/device_id`
+is read or derived:
+1. `material` is formed by joining non-empty values:
+   `[machine-id, hostname, os.name, os.arch, user.name].joinToString("|")`
+   - `machine-id`: read from `/etc/machine-id` on Linux, `MachineGuid` in registry on Windows.
+   - `hostname`: read from `HOSTNAME` env or `/etc/hostname` on Linux, `COMPUTERNAME` on Windows.
+2. `device_id` is lowercase hex `SHA-256(material)` (or random UUID without hyphens if all empty).
+3. `hwid` is uppercase hex `SHA-256("incy_hwid_" + device_id)` grouped `8-4-4-4-12` (36 chars).
 
 **VERIFIED** against a real device (Android 16, Incy 3.7.0): the whole chain reproduces the client's
 id exactly — the SSAID computed with `INCY_SIGNERS`, the `android_id` acceptance rule, the field
