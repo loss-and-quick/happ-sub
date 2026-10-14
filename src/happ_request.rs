@@ -94,6 +94,46 @@ pub struct DeviceInfo {
     pub locale: String,
 }
 
+pub use crate::desktop::DesktopFacts;
+
+/// Translates raw desktop telemetry into Happ's Qt-style [`DeviceInfo`].
+pub fn desktop_device(facts: &DesktopFacts<'_>) -> DeviceInfo {
+    let os_version = crate::desktop::qt_product(facts.os_release_id, facts.os_release_version);
+    let arch = crate::desktop::qt_cpu_architecture(facts.cpu_arch);
+    let model = if !facts.hostname.is_empty() && !arch.is_empty() {
+        format!("{}_{}", facts.hostname, arch)
+    } else if !facts.hostname.is_empty() {
+        facts.hostname.to_string()
+    } else {
+        arch.to_string()
+    };
+    let locale = crate::desktop::qt_locale_name(facts.posix_locale);
+    let os = if facts.os.eq_ignore_ascii_case("linux") {
+        ClientOs::Linux
+    } else if facts.os.eq_ignore_ascii_case("windows") {
+        ClientOs::Windows
+    } else {
+        ClientOs::Other(facts.os.to_string())
+    };
+    DeviceInfo {
+        os,
+        os_version,
+        model,
+        locale,
+    }
+}
+
+/// Happ desktop HWID rule: returns `Some(machine_id)` when valid per [`crate::device::is_valid_sys_hwid`],
+/// or `None` if absent or bogus (signaling the caller to use a stored random fallback).
+pub fn desktop_hwid(machine_id: Option<&str>) -> Option<String> {
+    let id = machine_id?.trim();
+    if crate::device::is_valid_sys_hwid(id) {
+        Some(id.to_string())
+    } else {
+        None
+    }
+}
+
 /// The device, its HWID and the user's per-subscription overrides.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Identity {
@@ -730,5 +770,40 @@ mod tests {
         };
         let p = build(&identity, None, EVEN_DAY, no);
         assert_eq!(names(&p), ["Connection", "User-agent", "X-Device-Locale"]);
+    }
+
+    #[test]
+    fn desktop_device_translation() {
+        let raw = DesktopFacts {
+            os: "Linux",
+            os_release_id: "nixos",
+            os_release_version: "26.05",
+            kernel_release: "6.12.18",
+            hostname: "mybox",
+            cpu_arch: "x86_64",
+            username: "user",
+            machine_id: Some("0123456789abcdef"),
+            posix_locale: "ru_RU.UTF-8",
+            language_tag: "ru-RU",
+        };
+        let device = desktop_device(&raw);
+        assert_eq!(device.os, ClientOs::Linux);
+        assert_eq!(device.os_version, "nixos_26.05");
+        assert_eq!(device.model, "mybox_x86_64");
+        assert_eq!(device.locale, "ru_RU");
+    }
+
+    #[test]
+    fn desktop_hwid_validation() {
+        assert_eq!(
+            desktop_hwid(Some("0123456789abcdef")),
+            Some("0123456789abcdef".to_string())
+        );
+        assert_eq!(desktop_hwid(Some("")), None);
+        assert_eq!(
+            desktop_hwid(Some("00000000-0000-0000-0000-000000000000")),
+            None
+        );
+        assert_eq!(desktop_hwid(None), None);
     }
 }

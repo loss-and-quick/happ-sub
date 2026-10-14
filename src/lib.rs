@@ -27,6 +27,7 @@ pub mod body;
 #[cfg(feature = "body-crypt")]
 pub mod body_crypt;
 pub mod deeplink;
+pub mod desktop;
 #[cfg(feature = "device")]
 pub mod device;
 #[cfg(feature = "happ-request")]
@@ -46,6 +47,7 @@ pub mod signers;
 pub mod url_crypt;
 
 pub use body::Payload;
+pub use desktop::DesktopFacts;
 pub use meta::{Limits, MergeMode, MetaDelta, MetaMap, ProposedChange, RiskClass, UserInfo};
 pub use release::{
     HAPP_API_VERSION, HAPP_DESKTOP_BUNDLE_ID_LINUX, HAPP_DESKTOP_UA_BUILD_STAMP,

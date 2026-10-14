@@ -83,6 +83,7 @@
 
 use sha2::{Digest, Sha256};
 
+pub use crate::desktop::DesktopFacts;
 use crate::release::{INCY_DESKTOP_VERSION, INCY_VERSION};
 
 /// Value of the `x-client` header.
@@ -98,6 +99,9 @@ pub const EMULATOR_ANDROID_ID: &str = "9774d56d682e549c";
 
 /// `java.vm.version` substitute when the property is absent.
 pub const DEFAULT_VM_VERSION: &str = "2.1.0";
+
+/// `java.vm.version` bundled in Incy Desktop's Linux runtime package.
+pub const BUNDLED_DESKTOP_VM_VERSION: &str = "21.0.6";
 
 /// Hex characters of the digest kept, before the `8-4-4-4-12` grouping.
 pub const HWID_HEX_LEN: usize = 32;
@@ -388,6 +392,28 @@ fn seed_from_device(facts: &DeviceFacts<'_>, fallback_seed: &str) -> String {
     hex(&Sha256::digest(material.as_bytes()), false)
 }
 
+/// Translates raw desktop telemetry into Incy's JVM-style [`DeviceFacts`].
+pub fn desktop_facts<'a>(facts: &'a DesktopFacts<'a>) -> DeviceFacts<'a> {
+    let locale = crate::desktop::qt_locale_subslice(facts.posix_locale);
+    DeviceFacts {
+        android_id: facts.machine_id,
+        manufacturer: facts.os,
+        model: "",
+        brand: "",
+        device: "",
+        product: "",
+        board: "",
+        hardware: "",
+        os_version: facts.kernel_release,
+        locale,
+        language_tag: facts.language_tag,
+        os: facts.os,
+        hostname: facts.hostname,
+        username: facts.username,
+        arch: crate::desktop::jvm_os_arch(facts.cpu_arch),
+    }
+}
+
 /// Build the header list in the client's order.
 pub fn build_headers(
     options: &RequestOptions<'_>,
@@ -412,13 +438,15 @@ pub fn build_headers(
         // Desktop Incy wire order from `SubscriptionService.kt`:
         // User-Agent, Accept, Accept-Language, x-app-version, x-device-locale, x-client,
         // followed by device headers when hwid is present.
+        let lang_tag = if !facts.language_tag.is_empty() {
+            facts.language_tag.to_string()
+        } else {
+            facts.locale.replace('_', "-")
+        };
         let mut headers = vec![
             ("User-Agent".to_string(), ua),
             ("Accept".to_string(), "*/*".to_string()),
-            (
-                "Accept-Language".to_string(),
-                facts.language_tag.to_string(),
-            ),
+            ("Accept-Language".to_string(), lang_tag),
             ("x-app-version".to_string(), app_version.to_string()),
             ("x-device-locale".to_string(), facts.locale.to_string()),
             ("x-client".to_string(), CLIENT.to_string()),
@@ -827,5 +855,30 @@ mod tests {
         // Stored value with hyphens returned unchanged:
         let stored = "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE";
         assert_eq!(derive_hwid(Some(stored), &d_facts, "fallback"), stored);
+    }
+
+    #[test]
+    fn desktop_facts_translation() {
+        let raw = DesktopFacts {
+            os: "Linux",
+            os_release_id: "nixos",
+            os_release_version: "26.05",
+            kernel_release: "6.12.18",
+            hostname: "mybox",
+            cpu_arch: "x86_64",
+            username: "user",
+            machine_id: Some("0123456789abcdef"),
+            posix_locale: "ru_RU.UTF-8",
+            language_tag: "ru-RU",
+        };
+        let df = desktop_facts(&raw);
+        assert_eq!(df.os, "Linux");
+        assert_eq!(df.os_version, "6.12.18");
+        assert_eq!(df.arch, "amd64");
+        assert_eq!(df.locale, "ru_RU");
+        assert_eq!(df.language_tag, "ru-RU");
+        assert_eq!(df.hostname, "mybox");
+        assert_eq!(df.username, "user");
+        assert_eq!(df.android_id, Some("0123456789abcdef"));
     }
 }
