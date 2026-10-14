@@ -102,11 +102,22 @@ certificate per signer. Incy 3.7.0 is **v3 only, one certificate**, DER 1420 byt
 `e1430d81de511c72253a6a409910e609686f084e3944eab6f154999ac7128b13`. `INCY_VERSION` and
 `INCY_VERSION_CODE` sit in `release.rs` beside Happ's.
 
-They are **not** an input to `derive_hwid`. Incy seeds from `Settings.Secure.getString("android_id")`,
-which on Android 8+ is a value scoped to the app's signing key and derived from the device-wide
-`ANDROID_ID` — a different identifier from the AOSP SSAID that `device::ssaid` computes, and one
-that additionally needs the device-wide value. Knowing Incy's certificate therefore does not let a
-client reproduce the id; it identifies the app, which is what a client-side check needs.
+They **are** the input `derive_hwid` needs. Incy seeds from `Settings.Secure.getString("android_id")`,
+and on Android 8+ that read is the app's own SSAID: `SettingsProvider.isNewSsaidSetting` routes any
+`android_id` read from an application UID to `getSsaidSettingLocked`, which returns the per-app
+entry of the SSAID table and, when it is missing, generates it with `generateSsaidLocked` — the same
+HMAC-SHA256 over the length-prefixed signing certificates that `device::ssaid` implements. So with
+`INCY_SIGNERS` and the device's `userkey` from `settings_ssaid.xml`, the seed input is computable:
+
+```text
+android_id = device::ssaid(user_key, INCY_SIGNERS)
+K1         = incy_request::derive_hwid(stored = None, facts.android_id = android_id, …)
+```
+
+The legacy device-wide value is not what an app sees here: only system UIDs read the secure-table
+entry, and a pre-Android-8 install keeps a legacy value only for an instant-app-free `targetSdk < 26`
+app upgraded from 7.x. What remains **INFERRED** is `derive_hwid` itself — the input is now
+reproducible, the derivation has not yet been compared against a live device.
 
 ## Verification
 

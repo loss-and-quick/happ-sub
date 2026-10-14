@@ -26,12 +26,20 @@
 //!
 //! # Device id
 //!
-//! INCY's `x-hwid` is **not** an SSAID. [`derive_hwid`] reproduces the client's algorithm: a stored
-//! value is reused as is, otherwise a seed is derived once from `android_id` and the build
-//! fingerprints, and the id itself is the uppercase-hex head of `SHA-256("afcy_hwidS" ‖ seed)`
-//! grouped as `8-4-4-4-12`. The emulator's sentinel `android_id` is rejected in favour of a
-//! random seed. Read from decompiled code only (**INFERRED**): a caller that has observed a real
-//! device should pass its id in [`RequestOptions::hwid`] rather than derive one.
+//! INCY's `x-hwid` is **not** an SSAID of its own: it is a hash over the app's `android_id` and
+//! the build fingerprints. On Android 8+ that `android_id` read is the per-app SSAID
+//! `SettingsProvider` keeps in `settings_ssaid.xml` — `isNewSsaidSetting` routes any `android_id`
+//! read from an application UID to `getSsaidSettingLocked` — so [`crate::device::ssaid`] with
+//! [`crate::incy_signers::INCY_SIGNERS`] and the device's `userkey` produces the input
+//! [`derive_hwid`] needs.
+//!
+//! [`derive_hwid`] reproduces the client's algorithm: a stored value is reused as is, otherwise a
+//! seed is derived once from `android_id` and the build fingerprints, and the id itself is the
+//! uppercase-hex head of `SHA-256("afcy_hwidS" ‖ seed)` grouped as `8-4-4-4-12`. The emulator's
+//! sentinel `android_id` is rejected in favour of a random seed. The derivation itself is
+//! **INFERRED** — read from the client, never compared against a live device — while its input is
+//! reproducible. A caller that has observed a real id should pass it in [`RequestOptions::hwid`]
+//! rather than derive one.
 //!
 //! # Scope
 //!
@@ -96,7 +104,9 @@ pub const MIN_NON_ZERO_CHARS: usize = 4;
 /// The device values the client reads from the platform; the caller supplies every one of them.
 #[derive(Debug, Clone, Copy)]
 pub struct DeviceFacts<'a> {
-    /// `Settings.Secure.getString("android_id")`, if it could be read.
+    /// `Settings.Secure.getString("android_id")`, if it could be read. On Android 8+ this is the
+    /// app's SSAID, which a caller with the device's `userkey` can compute with
+    /// [`crate::device::ssaid`] and [`crate::incy_signers::INCY_SIGNERS`].
     pub android_id: Option<&'a str>,
     /// `Build.MANUFACTURER`.
     pub manufacturer: &'a str,
