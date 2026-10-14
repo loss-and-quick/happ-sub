@@ -50,14 +50,19 @@ auto-routing profile, `datatransport/3.3.0 android/` for the geo-asset downloade
    - `android_id` with fewer than four non-`0` characters → a random UUID without dashes;
    - otherwise `SHA-256(android_id | MANUFACTURER | MODEL | BRAND | DEVICE | PRODUCT | BOARD | HARDWARE)`,
      lower-case hex;
-3. the id is the first 32 characters of `SHA-256("afcy_hwidS" ‖ seed)` in **upper-case** hex,
+3. the id is the first 32 characters of `SHA-256("incy_hwid_" ‖ seed)` in **upper-case** hex,
    grouped `8-4-4-4-12`.
 
-The `"afcy_hwidS"` prefix is XOR-obfuscated in the client as `{35,21,77,36,64,11,63,94,8,70}`
-against the same 16-byte table it uses for the crypt1 salt. The two hex cases are not a typo: the
-seed is formatted `%02x` and the id `%02X`.
+The `"incy_hwid_"` prefix is XOR-obfuscated in the client as `{35,21,77,36,64,11,63,94,8,70}`
+against the same 16-byte table it uses for the crypt1 salt (`sg/e.java:114-117`): `35^74='i'`,
+`21^123='n'`, `77^46='c'`, `36^93='y'`, `64^31='_'`, `11^99='h'`, `63^72='w'`, `94^55='i'`,
+`8^108='d'`, `70^25='_'`. The two hex cases are not a typo: the seed is formatted `%02x` and the id
+`%02X`.
 
-**INFERRED**: this was read from the code, not observed on a device, so it carries no test vector.
+**VERIFIED** against a real device (Android 16, Incy 3.7.0): the whole chain reproduces the client's
+id exactly — the SSAID computed with `INCY_SIGNERS`, the `android_id` acceptance rule, the field
+order and content of the seed, the hex cases, the grouping and the prefix. Values are not published;
+`src/incy_request.rs` pins the algorithm on synthetic seeds.
 A caller that has seen a real Incy id should pass it in `RequestOptions::hwid` instead of deriving
 one.
 
@@ -83,16 +88,17 @@ and Happ directives in one response; the routing directives are deliberately sch
 ## Where the id is stored
 
 Incy keeps both the id and its seed in **Jetpack `EncryptedSharedPreferences`** (`sg/c0.java`):
-file `incy_secure8storage` in the app's `shared_prefs`, keys `hwid` (the id) and `device_id` (the
-seed), with a `MasterKey` of AES256-GCM in the Android keystore, AES256-SIV key encryption and
-AES256-GCM value encryption. The same file holds `db_passphrase`, the SQLCipher passphrase of the
-app database. The file and key names are obfuscated strings in the client
-(`sg/b0.java`: `{35,21,…}` XOR a 16-byte table), decoded to the values above.
+file `incy_secure_storage.xml` in the app's `shared_prefs`, keys `hwid` (the id) and
+`device_id` (the seed), with a `MasterKey` of AES256_GCM in the Android keystore, AES256-SIV
+key encryption and AES256-GCM value encryption. The same file holds `db_passphrase`, the
+SQLCipher passphrase of the app database. The file and key names are obfuscated strings in
+the client (`sg/b0.java`: `{35,21,…}` XOR a 16-byte table), decoded to the values above and
+confirmed against the file on a device.
 
 Consequences for a third-party client: reading the value off-device needs the keystore-wrapped
 master key, so on a rooted device at runtime or through instrumentation, not from a backup. The
-alternative is to capture one live request, or to seed from a real `android_id` the device already
-exposes — neither of which the signing certificates help with, see below.
+alternative, and the one that needs no root, is to compute the id from `INCY_SIGNERS` and the
+device's `userkey` — see below.
 
 ## Signing certificates
 
@@ -115,13 +121,14 @@ K1         = incy_request::derive_hwid(stored = None, facts.android_id = android
 ```
 
 The legacy device-wide value is not what an app sees here: only system UIDs read the secure-table
-entry, and a pre-Android-8 install keeps a legacy value only for an instant-app-free `targetSdk < 26`
-app upgraded from 7.x. What remains **INFERRED** is `derive_hwid` itself — the input is now
-reproducible, the derivation has not yet been compared against a live device.
+entry, and a pre-Android-8 install keeps a legacy value only for a `targetSdk < 26` app upgraded from
+7.x. This step was confirmed against a device as well — the SSAID computed from `INCY_SIGNERS` and
+`userkey` is the value Incy itself reads, and it equals the app's entry in `settings_ssaid.xml`.
 
 ## Verification
 
 `src/incy_request.rs` pins the header names, their order and the conditions under which the
 `x-hwid` block appears, the User-Agent formats and override precedence, the `usable_android_id`
-rule and the shape of a derived id. Fidelity of the id itself is unproven — see the note above. The
-research project's `probes/incy/` keeps the decompiled excerpts this document was written from.
+rule and the shape of a derived id. The derivation itself was checked on a real device and matches;
+the values are not published, so the tests pin it on synthetic seeds. The research project's
+`probes/incy/` keeps the decompiled excerpts this document was written from.

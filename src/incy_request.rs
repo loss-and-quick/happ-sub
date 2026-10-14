@@ -35,11 +35,11 @@
 //!
 //! [`derive_hwid`] reproduces the client's algorithm: a stored value is reused as is, otherwise a
 //! seed is derived once from `android_id` and the build fingerprints, and the id itself is the
-//! uppercase-hex head of `SHA-256("afcy_hwidS" ‖ seed)` grouped as `8-4-4-4-12`. The emulator's
+//! uppercase-hex head of `SHA-256("incy_hwid_" ‖ seed)` grouped as `8-4-4-4-12`. The emulator's
 //! sentinel `android_id` is rejected in favour of a random seed. The derivation itself is
-//! **INFERRED** — read from the client, never compared against a live device — while its input is
-//! reproducible. A caller that has observed a real id should pass it in [`RequestOptions::hwid`]
-//! rather than derive one.
+//! **VERIFIED** against a real device (Android 16, Incy 3.7.0), which is also how the `incy_hwid_`
+//! prefix was settled: no device value is published, and a caller holding an id it has observed
+//! should still pass it in [`RequestOptions::hwid`] rather than derive one.
 //!
 //! # Scope
 //!
@@ -86,8 +86,9 @@ use sha2::{Digest, Sha256};
 pub const CLIENT: &str = "INCY";
 
 /// Prefix mixed into the device-id digest; XOR-obfuscated in the client as
-/// `{35,21,77,36,64,11,63,94,8,70}` against the same table its salt uses.
-pub const HWID_PREFIX: &str = "afcy_hwidS";
+/// `{35,21,77,36,64,11,63,94,8,70}` against the same table its salt uses, which decodes to
+/// `incy_hwid_` (`sg/e.java:114-117`).
+pub const HWID_PREFIX: &str = "incy_hwid_";
 
 /// `android_id` every Android emulator reports; treated as absent.
 pub const EMULATOR_ANDROID_ID: &str = "9774d56d682e549c";
@@ -195,7 +196,8 @@ pub fn resolve_user_agent(options: &RequestOptions<'_>) -> String {
 /// generates when `android_id` is missing, is the emulator sentinel, or has too few non-zero
 /// characters — a random UUID without dashes.
 ///
-/// **INFERRED**: read from the client, not observed on a device.
+/// **VERIFIED** on a real device (Android 16); the values are not published, so the tests below pin
+/// the algorithm on synthetic seeds.
 pub fn derive_hwid(stored: Option<&str>, facts: &DeviceFacts<'_>, fallback_seed: &str) -> String {
     if let Some(id) = stored {
         if id.len() == 36 && id.contains('-') {
@@ -361,7 +363,7 @@ mod tests {
     /// The id the documented digest produces for `seed`, spelled out independently of the
     /// production helpers so a change in either one shows up here.
     fn hwid_for_seed(seed: &str) -> String {
-        let digest = Sha256::digest(format!("afcy_hwidS{seed}").as_bytes());
+        let digest = Sha256::digest(format!("incy_hwid_{seed}").as_bytes());
         let hex: String = digest.iter().map(|b| format!("{b:02X}")).collect();
         [
             &hex[0..8],
@@ -491,6 +493,24 @@ mod tests {
             hwid_for_seed(&seed),
             "the id is the upper-case hex head of SHA-256(prefix + seed)"
         );
+    }
+
+    #[test]
+    fn the_prefix_is_what_the_clients_obfuscated_array_decodes_to() {
+        // Transcribed from the client: the shared table (`sg/y.java:25`) and the prefix array at
+        // `sg/e.java:114`, which the client XORs against it ten times.
+        let table = [
+            74u8, 123, 46, 93, 31, 99, 72, 55, 108, 25, 85, 58, 113, 14, 66, 105,
+        ];
+        let obfuscated = [35u8, 21, 77, 36, 64, 11, 63, 94, 8, 70];
+        let decoded: String = obfuscated
+            .iter()
+            .zip(table.iter().cycle())
+            .map(|(byte, key)| byte ^ key)
+            .map(char::from)
+            .collect();
+        assert_eq!(decoded, "incy_hwid_");
+        assert_eq!(HWID_PREFIX, decoded);
     }
 
     #[test]
