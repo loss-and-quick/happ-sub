@@ -5,8 +5,12 @@
 //! (`tests/data/incy/incy-crypt1-samples.json`) and the research documentation
 //! (`docs/fixtures/incy-crypt1-samples.json` in happ-research-backup), so a divergence between
 //! the Rust and Python implementations shows up as a failing test on one side.
+//!
+//! Every sample is encrypted under K1, so this file needs the embedded keymat. The other way to
+//! use the module — a caller holding its own key, without `builtin-incy-keys` — is covered by
+//! `incy_caller_key.rs`.
 
-#![cfg(feature = "incy-crypt")]
+#![cfg(all(feature = "incy-crypt", feature = "builtin-incy-keys"))]
 
 use happ_sub::incy_crypt::{
     builtin_key, decrypt_link, derive_key, encrypt_link, fingerprint, is_incy_link, IncyCryptError,

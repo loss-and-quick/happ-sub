@@ -38,6 +38,8 @@ jobs:
       - run: cargo clippy --all-targets --no-default-features -- -D warnings
       - run: cargo clippy --all-targets --no-default-features --features url-crypt -- -D warnings
       - run: cargo clippy --all-targets --no-default-features --features device -- -D warnings
+      - run: cargo clippy --all-targets --no-default-features --features incy-crypt -- -D warnings
+      - run: cargo clippy --all-targets --no-default-features --features incy-request,incy-signers -- -D warnings
 
   test:
     runs-on: ubuntu-latest
@@ -50,6 +52,12 @@ jobs:
           - "--no-default-features --features url-crypt"
           - "--no-default-features --features builtin-url-keys"
           - "--no-default-features --features device"
+          - "--no-default-features --features incy-crypt"
+          - "--no-default-features --features builtin-incy-keys"
+          - "--no-default-features --features incy-request"
+          - "--no-default-features --features incy-signers"
+          - "--no-default-features --features happ-request"
+          - "--no-default-features --features incy-request,incy-signers"
           - "--all-features"
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
