@@ -25,10 +25,14 @@ Every claim carries one of four tags:
 
 | Tag | Meaning |
 |---|---|
-| **VERIFIED** | Confirmed by the decompiled code or native disassembly **and** by live provider traffic, Happ's observed behaviour on a device, a vendor test vector, or a decryption of real data. |
+| **VERIFIED** | Confirmed by the decompiled code or native disassembly **and** by live provider traffic, the client's observed behaviour on a device, a vendor test vector, or a decryption of real data. |
 | **DOCUMENTED** | Stated in the vendor's provider documentation at [happ.su/main/dev-docs](https://www.happ.su/main/dev-docs), not seen in live traffic. |
 | **INFERRED** | Read from the decompiled code only; no live sample and no vendor statement. |
 | **UNKNOWN** | Could not be settled statically or empirically. |
+
+A device observation is recorded without the values it rests on: hardware identifiers, device
+seed material and key material from a real device stay out of this repository and its history, so a
+test vector here is synthetic and the tag carries the fact of the comparison rather than its data.
 
 Sources behind the tags:
 
