@@ -12,6 +12,17 @@ pub const HAPP_UA_BUILD_STAMP: &str = "1791210317680";
 /// Two-digit tail Happ appends to its User-Agent.
 pub const HAPP_UA_SUFFIX: &str = "50";
 
+/// Happ desktop release whose identity this crate reproduces (observed in `Happ.linux.x64.deb`).
+pub const HAPP_DESKTOP_VERSION: &str = "4.5.4";
+/// Build stamp Happ desktop embeds in its User-Agent (`YYMMDDHHmm` in UTC+3).
+pub const HAPP_DESKTOP_UA_BUILD_STAMP: &str = "2610141140";
+/// Two-digit tail Happ desktop appends to its User-Agent.
+pub const HAPP_DESKTOP_UA_SUFFIX: &str = "85";
+/// Happ desktop package bundle identifier for Linux (`su.happ.desktop.linux`).
+pub const HAPP_DESKTOP_BUNDLE_ID_LINUX: &str = "su.happ.desktop.linux";
+/// Happ API version sent in `X-API-Version`.
+pub const HAPP_API_VERSION: &str = "1.0";
+
 /// Incy release whose identity this crate reproduces.
 pub const INCY_VERSION: &str = "3.7.0";
 /// Android `versionCode` of that release.

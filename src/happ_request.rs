@@ -36,7 +36,11 @@
 use std::time::Duration;
 
 use crate::meta::{parse_bool, MetaMap};
-use crate::release::{HAPP_UA_BUILD_STAMP, HAPP_UA_SUFFIX, HAPP_VERSION, HAPP_VERSION_CODE};
+use crate::release::{
+    HAPP_API_VERSION, HAPP_DESKTOP_BUNDLE_ID_LINUX, HAPP_DESKTOP_UA_BUILD_STAMP,
+    HAPP_DESKTOP_UA_SUFFIX, HAPP_DESKTOP_VERSION, HAPP_UA_BUILD_STAMP, HAPP_UA_SUFFIX,
+    HAPP_VERSION, HAPP_VERSION_CODE,
+};
 
 /// Fetch timeout Happ uses when the subscription sets none.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(7);
@@ -52,7 +56,7 @@ pub enum ClientOs {
     AndroidTv,
     /// `Windows`; inferred, no desktop Happ build was examined.
     Windows,
-    /// `Linux`; inferred, no desktop Happ build was examined.
+    /// `Linux`; verified from desktop Happ build (`Happ.linux.x64.deb` 4.5.4-333).
     Linux,
     /// `macOS`; inferred, no desktop Happ build was examined.
     MacOs,
@@ -172,13 +176,40 @@ impl RequestProfile {
     }
 }
 
-/// Happ's default User-Agent for an OS string (`Android`, `AndroidTV`) on a UTC day of the month.
-pub fn user_agent(os: &str, utc_day_of_month: u32) -> String {
-    // `wb8.S`: the digit after the version code flips between even and odd UTC days.
-    let parity = if utc_day_of_month % 2 == 0 { '6' } else { '5' };
-    format!(
-        "Happ/{HAPP_VERSION}/{os}/{HAPP_UA_BUILD_STAMP}{HAPP_VERSION_CODE}{parity}{HAPP_UA_SUFFIX}"
-    )
+/// Happ's default User-Agent for an OS string (`Android`, `AndroidTV`, `Linux`) on a day of the month.
+///
+/// For `Linux`, uses the desktop template (`Happ/4.5.4/Linux/2610141140[5|6]85`).
+/// For Android and other OS strings, uses the mobile template (`Happ/4.7.1/...`).
+pub fn user_agent(os: &str, day_of_month: u32) -> String {
+    if os.eq_ignore_ascii_case("linux") {
+        // Happ desktop (observed in `Happ.linux.x64.deb`, `0x2f8440`):
+        // Flips between '5' (odd days) and '6' (even days).
+        let parity = if day_of_month % 2 != 0 { '5' } else { '6' };
+        format!(
+            "Happ/{HAPP_DESKTOP_VERSION}/Linux/{HAPP_DESKTOP_UA_BUILD_STAMP}{parity}{HAPP_DESKTOP_UA_SUFFIX}"
+        )
+    } else {
+        // `wb8.S`: the digit after the version code flips between even and odd UTC days.
+        let parity = if day_of_month % 2 == 0 { '6' } else { '5' };
+        format!(
+            "Happ/{HAPP_VERSION}/{os}/{HAPP_UA_BUILD_STAMP}{HAPP_VERSION_CODE}{parity}{HAPP_UA_SUFFIX}"
+        )
+    }
+}
+
+/// Happ's default User-Agent for an OS string and Unix timestamp in seconds.
+///
+/// On Linux, the day parity is computed in UTC+3 (MSK), as observed in the desktop binary.
+/// On Android, the day parity is computed in UTC.
+pub fn user_agent_for_os(os: &str, unix_secs: u64) -> String {
+    let os = header_value(os);
+    if os.eq_ignore_ascii_case("linux") {
+        // Desktop Happ adds 10800 seconds (UTC+3) to current UTC time.
+        let dt = unix_secs.saturating_add(10_800);
+        user_agent("Linux", utc_day_of_month(dt))
+    } else {
+        user_agent(&os, utc_day_of_month(unix_secs))
+    }
 }
 
 /// Builds the request Happ would send at `unix_secs`, given the subscription's merged metadata
@@ -203,7 +234,7 @@ pub fn build(
     .flatten()
     .map(header_value)
     .find(|ua| !ua.is_empty())
-    .unwrap_or_else(|| user_agent(&os, utc_day_of_month(unix_secs)));
+    .unwrap_or_else(|| user_agent_for_os(&os, unix_secs));
 
     // `mr` case 8: `always` forces sending on, whatever `send-hwid-enabled` says.
     let always_hwid = flag("subscription-always-hwid-enable") == Some(true);
@@ -220,6 +251,9 @@ pub fn build(
         .as_deref()
         .map(header_value)
         .filter(|h| !h.is_empty());
+
+    let is_linux =
+        matches!(identity.device.os, ClientOs::Linux) || os.eq_ignore_ascii_case("linux");
 
     let mut headers = vec![
         ("Connection".to_string(), "close".to_string()),
@@ -243,6 +277,17 @@ pub fn build(
             "X-Device-model".to_string(),
             header_value(&identity.device.model),
         ));
+        if is_linux {
+            headers.push((
+                "X-Bundle-ID".to_string(),
+                HAPP_DESKTOP_BUNDLE_ID_LINUX.to_string(),
+            ));
+            headers.push(("X-API-Version".to_string(), HAPP_API_VERSION.to_string()));
+            headers.push((
+                "X-App-Version".to_string(),
+                HAPP_DESKTOP_VERSION.to_string(),
+            ));
+        }
         // `so1`: the HWID moves to a nameless cookie appended after the other headers.
         if let Some(hwid) = hwid.filter(|_| hwid_in_cookie) {
             headers.push(("Cookie".to_string(), hwid));
@@ -593,5 +638,93 @@ mod tests {
         for (os, s) in all {
             assert_eq!(os.as_str(), s);
         }
+    }
+
+    #[test]
+    fn desktop_linux_user_agent_format() {
+        assert_eq!(user_agent("Linux", 14), "Happ/4.5.4/Linux/2610141140685");
+        assert_eq!(user_agent("Linux", 15), "Happ/4.5.4/Linux/2610141140585");
+        assert_eq!(user_agent("linux", 1), "Happ/4.5.4/Linux/2610141140585");
+        assert_eq!(user_agent("LINUX", 2), "Happ/4.5.4/Linux/2610141140685");
+    }
+
+    #[test]
+    fn desktop_linux_user_agent_timezone_boundary() {
+        // 2026-10-14 20:59:00 UTC is 23:59:00 MSK (UTC+3) -> day 14 (even -> '6')
+        // 2026-10-14 00:00:00 UTC = 1791936000
+        // 20:59:00 = 75540s -> 1791936000 + 75540 = 1792011540
+        let t1 = 1_792_011_540;
+        assert_eq!(
+            user_agent_for_os("Linux", t1),
+            "Happ/4.5.4/Linux/2610141140685"
+        );
+
+        // 2026-10-14 21:01:00 UTC is 00:01:00 MSK (UTC+3) on 2026-10-15 -> day 15 (odd -> '5')
+        // 21:01:00 = 75660s -> 1791936000 + 75660 = 1792011660
+        let t2 = 1_792_011_660;
+        assert_eq!(
+            user_agent_for_os("Linux", t2),
+            "Happ/4.5.4/Linux/2610141140585"
+        );
+    }
+
+    #[test]
+    fn desktop_linux_headers_in_build() {
+        let identity = Identity {
+            hwid: Some("0123456789abcdef".into()),
+            device: DeviceInfo {
+                os: ClientOs::Linux,
+                os_version: "ubuntu_24.04".into(),
+                model: "workstation_x86_64".into(),
+                locale: "ru_RU.UTF-8".into(),
+            },
+            ..Identity::default()
+        };
+        // EVEN_DAY (2026-10-14 12:00:00 UTC): in MSK it is 15:00:00 on day 14 -> even -> '6'
+        let p = build(&identity, None, EVEN_DAY, no);
+        assert_eq!(
+            names(&p),
+            [
+                "Connection",
+                "User-agent",
+                "X-Device-Locale",
+                "X-HWID",
+                "X-Device-OS",
+                "X-Ver-OS",
+                "X-Device-model",
+                "X-Bundle-ID",
+                "X-API-Version",
+                "X-App-Version",
+            ]
+        );
+        assert_eq!(
+            header(&p, "User-agent"),
+            Some("Happ/4.5.4/Linux/2610141140685")
+        );
+        assert_eq!(header(&p, "X-Device-Locale"), Some("ru"));
+        assert_eq!(header(&p, "X-HWID"), Some("0123456789abcdef"));
+        assert_eq!(header(&p, "X-Device-OS"), Some("Linux"));
+        assert_eq!(header(&p, "X-Ver-OS"), Some("ubuntu_24.04"));
+        assert_eq!(header(&p, "X-Device-model"), Some("workstation_x86_64"));
+        assert_eq!(header(&p, "X-Bundle-ID"), Some("su.happ.desktop.linux"));
+        assert_eq!(header(&p, "X-API-Version"), Some("1.0"));
+        assert_eq!(header(&p, "X-App-Version"), Some("4.5.4"));
+    }
+
+    #[test]
+    fn desktop_linux_disabled_hwid_drops_device_headers() {
+        let identity = Identity {
+            hwid: Some("0123456789abcdef".into()),
+            device: DeviceInfo {
+                os: ClientOs::Linux,
+                os_version: "ubuntu_24.04".into(),
+                model: "workstation_x86_64".into(),
+                locale: "ru_RU.UTF-8".into(),
+            },
+            send_hwid_override: Some(false),
+            ..Identity::default()
+        };
+        let p = build(&identity, None, EVEN_DAY, no);
+        assert_eq!(names(&p), ["Connection", "User-agent", "X-Device-Locale"]);
     }
 }

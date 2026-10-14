@@ -47,7 +47,11 @@ pub mod url_crypt;
 
 pub use body::Payload;
 pub use meta::{Limits, MergeMode, MetaDelta, MetaMap, ProposedChange, RiskClass, UserInfo};
-pub use release::{HAPP_VERSION, HAPP_VERSION_CODE, INCY_VERSION, INCY_VERSION_CODE};
+pub use release::{
+    HAPP_API_VERSION, HAPP_DESKTOP_BUNDLE_ID_LINUX, HAPP_DESKTOP_UA_BUILD_STAMP,
+    HAPP_DESKTOP_UA_SUFFIX, HAPP_DESKTOP_VERSION, HAPP_VERSION, HAPP_VERSION_CODE, INCY_VERSION,
+    INCY_VERSION_CODE,
+};
 pub use routing::{RoutingAction, RoutingProfile};
 
 #[cfg(doctest)]
