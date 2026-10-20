@@ -218,7 +218,8 @@ impl RequestProfile {
 
 /// Happ's default User-Agent for an OS string (`Android`, `AndroidTV`, `Linux`) on a day of the month.
 ///
-/// For `Linux`, uses the desktop template (`Happ/4.5.4/Linux/2610141140[5|6]85`).
+/// For `Linux`, uses the desktop template
+/// (`Happ/<HAPP_DESKTOP_VERSION>/Linux/<HAPP_DESKTOP_UA_BUILD_STAMP>[5|6]<HAPP_DESKTOP_UA_SUFFIX>`).
 /// For Android and other OS strings, uses the mobile template (`Happ/4.7.1/...`).
 pub fn user_agent(os: &str, day_of_month: u32) -> String {
     if os.eq_ignore_ascii_case("linux") {
@@ -399,6 +400,12 @@ mod tests {
     fn default_ua(os: &str, parity: char) -> String {
         format!(
             "Happ/{HAPP_VERSION}/{os}/{HAPP_UA_BUILD_STAMP}{HAPP_VERSION_CODE}{parity}{HAPP_UA_SUFFIX}"
+        )
+    }
+
+    fn desktop_ua(parity: char) -> String {
+        format!(
+            "Happ/{HAPP_DESKTOP_VERSION}/Linux/{HAPP_DESKTOP_UA_BUILD_STAMP}{parity}{HAPP_DESKTOP_UA_SUFFIX}"
         )
     }
 
@@ -686,10 +693,10 @@ mod tests {
 
     #[test]
     fn desktop_linux_user_agent_format() {
-        assert_eq!(user_agent("Linux", 14), "Happ/4.5.4/Linux/2610141140685");
-        assert_eq!(user_agent("Linux", 15), "Happ/4.5.4/Linux/2610141140585");
-        assert_eq!(user_agent("linux", 1), "Happ/4.5.4/Linux/2610141140585");
-        assert_eq!(user_agent("LINUX", 2), "Happ/4.5.4/Linux/2610141140685");
+        assert_eq!(user_agent("Linux", 14), desktop_ua('6'));
+        assert_eq!(user_agent("Linux", 15), desktop_ua('5'));
+        assert_eq!(user_agent("linux", 1), desktop_ua('5'));
+        assert_eq!(user_agent("LINUX", 2), desktop_ua('6'));
     }
 
     #[test]
@@ -698,18 +705,12 @@ mod tests {
         // 2026-10-14 00:00:00 UTC = 1791936000
         // 20:59:00 = 75540s -> 1791936000 + 75540 = 1792011540
         let t1 = 1_792_011_540;
-        assert_eq!(
-            user_agent_for_os("Linux", t1),
-            "Happ/4.5.4/Linux/2610141140685"
-        );
+        assert_eq!(user_agent_for_os("Linux", t1), desktop_ua('6'));
 
         // 2026-10-14 21:01:00 UTC is 00:01:00 MSK (UTC+3) on 2026-10-15 -> day 15 (odd -> '5')
         // 21:01:00 = 75660s -> 1791936000 + 75660 = 1792011660
         let t2 = 1_792_011_660;
-        assert_eq!(
-            user_agent_for_os("Linux", t2),
-            "Happ/4.5.4/Linux/2610141140585"
-        );
+        assert_eq!(user_agent_for_os("Linux", t2), desktop_ua('5'));
     }
 
     #[test]
@@ -741,10 +742,7 @@ mod tests {
                 "X-App-Version",
             ]
         );
-        assert_eq!(
-            header(&p, "User-agent"),
-            Some("Happ/4.5.4/Linux/2610141140685")
-        );
+        assert_eq!(header(&p, "User-agent"), Some(desktop_ua('6').as_str()));
         assert_eq!(header(&p, "X-Device-Locale"), Some("ru_RU.UTF-8"));
         assert_eq!(header(&p, "X-HWID"), Some("0123456789abcdef"));
         assert_eq!(header(&p, "X-Device-OS"), Some("Linux"));
@@ -752,7 +750,7 @@ mod tests {
         assert_eq!(header(&p, "X-Device-model"), Some("workstation_x86_64"));
         assert_eq!(header(&p, "X-Bundle-ID"), Some("su.happ.desktop.linux"));
         assert_eq!(header(&p, "X-API-Version"), Some("1.0"));
-        assert_eq!(header(&p, "X-App-Version"), Some("4.5.4"));
+        assert_eq!(header(&p, "X-App-Version"), Some(HAPP_DESKTOP_VERSION));
     }
 
     #[test]
