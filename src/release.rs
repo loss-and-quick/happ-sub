@@ -24,9 +24,9 @@ pub const HAPP_DESKTOP_BUNDLE_ID_LINUX: &str = "su.happ.desktop.linux";
 pub const HAPP_API_VERSION: &str = "1.0";
 
 /// Incy release whose identity this crate reproduces.
-pub const INCY_VERSION: &str = "3.7.0";
+pub const INCY_VERSION: &str = "3.7.9";
 /// Android `versionCode` of that release.
-pub const INCY_VERSION_CODE: u32 = 370;
+pub const INCY_VERSION_CODE: u32 = 379;
 
 /// Incy desktop release whose identity this crate reproduces (observed in `incy-linux-x64-portable.zip`).
-pub const INCY_DESKTOP_VERSION: &str = "3.8.10";
+pub const INCY_DESKTOP_VERSION: &str = "3.9.0";

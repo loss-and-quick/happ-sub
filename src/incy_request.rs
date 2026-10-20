@@ -823,10 +823,15 @@ mod tests {
                 "x-device-model",
             ]
         );
-        assert_eq!(request.headers[0].1, "INCY/3.8.10/linux Dalvik/2.1.0");
+        // The desktop version follows `INCY_DESKTOP_VERSION`, so a release bump cannot leave the
+        // expectation behind.
+        assert_eq!(
+            request.headers[0].1,
+            format!("INCY/{INCY_DESKTOP_VERSION}/linux Dalvik/2.1.0")
+        );
         assert_eq!(request.headers[1].1, "*/*");
         assert_eq!(request.headers[2].1, "ru-RU");
-        assert_eq!(request.headers[3].1, "3.8.10");
+        assert_eq!(request.headers[3].1, INCY_DESKTOP_VERSION);
         assert_eq!(request.headers[4].1, "ru_RU");
         assert_eq!(request.headers[5].1, CLIENT);
         assert_eq!(request.headers[6].1, "HWID-DESKTOP");
