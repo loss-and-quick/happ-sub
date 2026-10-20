@@ -2,11 +2,11 @@
 
 use super::{SigScheme, SignerSet};
 
-/// Signers of Happ 4.7.1: APK Signature Scheme v2 only, one certificate.
+/// Signers of Happ 4.8.0: APK Signature Scheme v2 only, one certificate.
 pub const HAPP_SIGNERS: SignerSet = SignerSet {
     scheme: SigScheme::V2,
     certs: &[&CERT_0],
-    apk_version: "4.7.1",
+    apk_version: "4.8.0",
 };
 
 /// DER, SHA-256 397e98abed03c5f263ffaf4e8a1043b2a59f538b99e75cf152fa05a7e8007d8d.

@@ -4,13 +4,13 @@
 //! reproduces only as far as its request profile ([`crate::incy_request`]).
 
 /// Happ release whose identity this crate reproduces.
-pub const HAPP_VERSION: &str = "4.7.1";
+pub const HAPP_VERSION: &str = "4.8.0";
 /// Android `versionCode` of the release.
-pub const HAPP_VERSION_CODE: u32 = 1703;
+pub const HAPP_VERSION_CODE: u32 = 1715;
 /// Build stamp Happ embeds in its User-Agent.
-pub const HAPP_UA_BUILD_STAMP: &str = "1791210317680";
+pub const HAPP_UA_BUILD_STAMP: &str = "1792069584606";
 /// Two-digit tail Happ appends to its User-Agent.
-pub const HAPP_UA_SUFFIX: &str = "50";
+pub const HAPP_UA_SUFFIX: &str = "61";
 
 /// Happ desktop release whose identity this crate reproduces (observed in `Happ.linux.x64.deb`).
 pub const HAPP_DESKTOP_VERSION: &str = "4.5.4";
