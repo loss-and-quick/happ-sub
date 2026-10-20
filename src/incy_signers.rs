@@ -1,19 +1,20 @@
-//! Generated from the Incy 3.7.0 release APK. Do not edit by hand.
+//! Generated from the Incy release APK (`llc.itdev.incy`). Do not edit by hand.
 //!
 //! Regenerate with happ-key-extractor's `happ_keys.apk_signer.get_ssaid_signers` against
-//! `Incy.apk` (`llc.itdev.incy`, versionCode 370), which returns the
-//! v3 signer above.
+//! `Incy.apk`. happ-key-extractor's sync checks each new Incy APK against this certificate and
+//! moves `apk_version` with `INCY_VERSION` only when it is unchanged, so the comments here name
+//! no version.
 
 use crate::signers::{SigScheme, SignerSet};
 
 /// Incy's Android package name.
 pub const INCY_PACKAGE: &str = "llc.itdev.incy";
 
-/// Signers of Incy 3.7.0: APK Signature Scheme v3 only, one certificate.
+/// Signers of Incy: APK Signature Scheme v3 only, one certificate.
 pub const INCY_SIGNERS: SignerSet = SignerSet {
     scheme: SigScheme::V3,
     certs: &[&CERT_0],
-    apk_version: "3.7.0",
+    apk_version: "3.7.9",
 };
 
 /// DER, SHA-256 e1430d81de511c72253a6a409910e609686f084e3944eab6f154999ac7128b13.
@@ -123,7 +124,7 @@ mod tests {
     fn incy_signers_are_pinned() {
         assert_eq!(INCY_PACKAGE, "llc.itdev.incy");
         assert_eq!(INCY_SIGNERS.scheme, SigScheme::V3);
-        assert_eq!(INCY_SIGNERS.apk_version, "3.7.0");
+        assert_eq!(INCY_SIGNERS.apk_version, crate::release::INCY_VERSION);
         assert_eq!(INCY_SIGNERS.certs.len(), 1);
         assert_eq!(INCY_SIGNERS.certs[0].len(), 1420);
 
