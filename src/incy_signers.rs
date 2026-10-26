@@ -14,7 +14,7 @@ pub const INCY_PACKAGE: &str = "llc.itdev.incy";
 pub const INCY_SIGNERS: SignerSet = SignerSet {
     scheme: SigScheme::V3,
     certs: &[&CERT_0],
-    apk_version: "3.7.9",
+    apk_version: "3.8.1",
 };
 
 /// DER, SHA-256 e1430d81de511c72253a6a409910e609686f084e3944eab6f154999ac7128b13.
