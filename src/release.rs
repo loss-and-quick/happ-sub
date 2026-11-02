@@ -13,20 +13,20 @@ pub const HAPP_UA_BUILD_STAMP: &str = "1792654306601";
 pub const HAPP_UA_SUFFIX: &str = "04";
 
 /// Happ desktop release whose identity this crate reproduces (observed in `Happ.linux.x64.deb`).
-pub const HAPP_DESKTOP_VERSION: &str = "4.5.4";
+pub const HAPP_DESKTOP_VERSION: &str = "4.6.1";
 /// Build stamp Happ desktop embeds in its User-Agent (`YYMMDDHHmm` in UTC+3).
-pub const HAPP_DESKTOP_UA_BUILD_STAMP: &str = "2610141140";
+pub const HAPP_DESKTOP_UA_BUILD_STAMP: &str = "2610271019";
 /// Two-digit tail Happ desktop appends to its User-Agent.
-pub const HAPP_DESKTOP_UA_SUFFIX: &str = "85";
+pub const HAPP_DESKTOP_UA_SUFFIX: &str = "66";
 /// Happ desktop package bundle identifier for Linux (`su.happ.desktop.linux`).
 pub const HAPP_DESKTOP_BUNDLE_ID_LINUX: &str = "su.happ.desktop.linux";
 /// Happ API version sent in `X-API-Version`.
 pub const HAPP_API_VERSION: &str = "1.0";
 
 /// Incy release whose identity this crate reproduces.
-pub const INCY_VERSION: &str = "3.8.1";
+pub const INCY_VERSION: &str = "3.9.8";
 /// Android `versionCode` of that release.
-pub const INCY_VERSION_CODE: u32 = 381;
+pub const INCY_VERSION_CODE: u32 = 398;
 
 /// Incy desktop release whose identity this crate reproduces (observed in `incy-linux-x64-portable.zip`).
 pub const INCY_DESKTOP_VERSION: &str = "3.9.0";
