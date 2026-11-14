@@ -83,3 +83,34 @@ jobs:
           CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS: fallback
       - run: cargo +1.80.0 test --all-features --no-run
       - run: cargo +1.80.0 check --no-default-features
+
+  ci-failure:
+    name: Track CI failure on main
+    needs: [nix-flake-check, lint, test, msrv]
+    if: failure() && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Open or update CI failure issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          TITLE="CI failure on main (${SHA:0:7})"
+          existing=$(gh issue list --state open --limit 100 --json number,title \
+            | jq -r --arg t "$TITLE" 'map(select(.title == $t)) | .[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "CI failed again on main: $RUN_URL"
+            exit 0
+          fi
+          gh issue create --title "$TITLE" --body-file - <<EOF
+          CI checks failed on \`main\` commit \`$SHA\`.
+
+          - Run: $RUN_URL
+
+          Check job logs for details.
+          EOF
