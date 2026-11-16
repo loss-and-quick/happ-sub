@@ -4,13 +4,13 @@
 //! reproduces only as far as its request profile ([`crate::incy_request`]).
 
 /// Happ release whose identity this crate reproduces.
-pub const HAPP_VERSION: &str = "4.10.1";
+pub const HAPP_VERSION: &str = "4.11.2";
 /// Android `versionCode` of the release.
-pub const HAPP_VERSION_CODE: u32 = 1731;
+pub const HAPP_VERSION_CODE: u32 = 1751;
 /// Build stamp Happ embeds in its User-Agent.
-pub const HAPP_UA_BUILD_STAMP: &str = "1793697484716";
+pub const HAPP_UA_BUILD_STAMP: &str = "1794811866183";
 /// Two-digit tail Happ appends to its User-Agent.
-pub const HAPP_UA_SUFFIX: &str = "80";
+pub const HAPP_UA_SUFFIX: &str = "11";
 
 /// Happ desktop release whose identity this crate reproduces (observed in `Happ.linux.x64.deb`).
 pub const HAPP_DESKTOP_VERSION: &str = "4.7.2";
@@ -24,9 +24,9 @@ pub const HAPP_DESKTOP_BUNDLE_ID_LINUX: &str = "su.happ.desktop.linux";
 pub const HAPP_API_VERSION: &str = "1.0";
 
 /// Incy release whose identity this crate reproduces.
-pub const INCY_VERSION: &str = "4.0.0";
+pub const INCY_VERSION: &str = "4.0.1";
 /// Android `versionCode` of that release.
-pub const INCY_VERSION_CODE: u32 = 400;
+pub const INCY_VERSION_CODE: u32 = 401;
 
 /// Incy desktop release whose identity this crate reproduces (observed in `incy-linux-x64-portable.zip`).
 pub const INCY_DESKTOP_VERSION: &str = "3.9.1";
